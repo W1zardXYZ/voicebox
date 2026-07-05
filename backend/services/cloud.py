@@ -19,6 +19,7 @@ import webbrowser
 from urllib.parse import urlencode
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import config
@@ -39,6 +40,15 @@ def _prune() -> None:
     for state, expiry in list(_pending.items()):
         if expiry < now:
             _pending.pop(state, None)
+
+
+def _json_dict(response: httpx.Response) -> dict | None:
+    """Parsed JSON body, or None when it isn't a JSON object."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _consume_state(state: str) -> bool:
@@ -84,7 +94,10 @@ async def handle_callback(db: Session, code: str, state: str) -> tuple[bool, str
             if exchanged.status_code != 200:
                 logger.warning("cloud exchange rejected code: %s", exchanged.status_code)
                 return False, "Could not complete sign-in — the code was rejected."
-            payload = exchanged.json()
+            payload = _json_dict(exchanged)
+            if payload is None:
+                logger.warning("cloud exchange returned a non-JSON payload")
+                return False, "Voicebox Cloud returned an unexpected response."
             api_key = payload.get("key")
             device_name = payload.get("label")
             if not api_key:
@@ -98,7 +111,9 @@ async def handle_callback(db: Session, code: str, state: str) -> tuple[bool, str
             if me.status_code != 200:
                 logger.warning("minted key failed verification: %s", me.status_code)
                 return False, "Sign-in succeeded but the key could not be verified."
-            account_user_id = (me.json().get("data") or {}).get("userId")
+            # The 200 above proves the key works; the user id is best-effort.
+            data = (_json_dict(me) or {}).get("data")
+            account_user_id = data.get("userId") if isinstance(data, dict) else None
     except httpx.HTTPError:
         logger.exception("network error during cloud exchange")
         return False, "Could not reach Voicebox Cloud. Check your connection and try again."
@@ -113,8 +128,14 @@ def _get_or_create_row(db: Session) -> DBCloudSettings:
     if row is None:
         row = DBCloudSettings(id=SINGLETON_ID)
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another request created the singleton concurrently.
+            db.rollback()
+            row = db.query(DBCloudSettings).filter(DBCloudSettings.id == SINGLETON_ID).one()
+        else:
+            db.refresh(row)
     return row
 
 
@@ -141,6 +162,7 @@ def get_status(db: Session) -> dict:
         "account_user_id": row.account_user_id if connected else None,
         "key_prefix": key_prefix,
         "connected_at": row.connected_at if connected else None,
+        "dashboard_url": f"{config.get_cloud_web_url()}/account",
     }
 
 
@@ -149,6 +171,7 @@ def disconnect(db: Session) -> None:
     revoked from the account dashboard — surface that in the UI."""
     row = _get_or_create_row(db)
     row.api_key = None
+    row.device_name = None
     row.account_user_id = None
     row.connected_at = None
     db.commit()

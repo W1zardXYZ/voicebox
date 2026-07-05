@@ -534,4 +534,5 @@ export interface CloudStatus {
   account_user_id: string | null;
   key_prefix: string | null;
   connected_at: string | null;
+  dashboard_url: string;
 }

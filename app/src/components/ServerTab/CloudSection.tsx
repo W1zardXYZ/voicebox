@@ -33,6 +33,22 @@ export function CloudSection() {
     }
   }, [connected, polling, status?.device_name, toast]);
 
+  // Give up after two minutes so an abandoned browser flow doesn't leave the
+  // button stuck on "Waiting for browser…". The backend state stays valid for
+  // ten, so the user can simply start again.
+  useEffect(() => {
+    if (!polling) return;
+    const timeoutId = window.setTimeout(() => {
+      setPolling(false);
+      toast({
+        title: 'Sign-in timed out',
+        description: 'The browser sign-in was not completed. Try again.',
+        variant: 'destructive',
+      });
+    }, 120_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [polling, toast]);
+
   const startLogin = useMutation({
     mutationFn: () => apiClient.startCloudLogin(),
     onSuccess: () => {
@@ -56,7 +72,8 @@ export function CloudSection() {
       queryClient.invalidateQueries({ queryKey: ['cloud-status'] });
       toast({
         title: 'Disconnected',
-        description: 'This device is no longer linked. The key stays valid until revoked in your account.',
+        description:
+          'This device is no longer linked. The key stays valid until revoked in your account.',
       });
     },
     onError: (error: Error) =>
@@ -88,7 +105,10 @@ export function CloudSection() {
               variant="outline"
             >
               {disconnect.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Disconnecting…
+                </>
               ) : (
                 'Disconnect'
               )}
@@ -118,7 +138,7 @@ export function CloudSection() {
         >
           <a
             className="text-sm text-accent hover:underline"
-            href="https://voicebox.sh/account"
+            href={status?.dashboard_url ?? 'https://voicebox.sh/account'}
             rel="noopener noreferrer"
             target="_blank"
           >

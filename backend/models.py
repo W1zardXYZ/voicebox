@@ -813,3 +813,4 @@ class CloudStatusResponse(BaseModel):
     account_user_id: Optional[str] = None
     key_prefix: Optional[str] = None
     connected_at: Optional[datetime] = None
+    dashboard_url: str
