@@ -66,10 +66,9 @@ incoming voice-message transcription still use whatever `tts.provider` /
 
 [`hermes-voicebox`](https://github.com/jamiepine/hermes-voicebox) registers
 Voicebox as a Hermes **TTS provider** and **STT provider** via Hermes's
-pluggable backend interfaces (see the Hermes developer guides for
-[TTS providers](https://hermes-agent.nousresearch.com/docs/developer-guide/tts-provider-plugin)
-and
-[transcription providers](https://hermes-agent.nousresearch.com/docs/developer-guide/transcription-provider-plugin)).
+pluggable backend interfaces (`register_tts_provider` /
+`register_transcription_provider` — see
+[Build a Hermes Plugin](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins)).
 Once selected, the providers service the *entire* voice pipeline: every
 spoken reply, every Telegram voice bubble, every incoming voice memo — plus
 a bundled skill that teaches the agent when speaking aloud is appropriate
