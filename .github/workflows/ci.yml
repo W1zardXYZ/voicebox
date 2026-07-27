@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend-quality:
     runs-on: ubuntu-latest
@@ -19,8 +23,67 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Lint (biome)
+        run: bun run lint
+
       - name: Typecheck app + web
         run: bun run typecheck
 
       - name: Build web smoke test
         run: bun run build:web
+
+  backend-quality:
+    # macOS arm64 matches the primary user platform and lets the MLX-path
+    # tests run instead of being skipped.
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt', 'justfile') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install just
+        run: brew install just
+
+      - name: Install backend dependencies
+        run: just setup-python
+
+      - name: Lint (ruff)
+        run: venv/bin/ruff check .
+        working-directory: backend
+
+      - name: Run tests
+        run: venv/bin/python -m pytest tests -q
+        working-directory: backend
+
+  rust-quality:
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+
+      - name: Stub sidecar binaries
+        # tauri-build validates externalBin paths; real sidecars are only
+        # produced by the release pipeline.
+        run: |
+          mkdir -p tauri/src-tauri/binaries tauri/dist
+          touch tauri/src-tauri/binaries/voicebox-server-aarch64-apple-darwin
+          touch tauri/src-tauri/binaries/voicebox-mcp-aarch64-apple-darwin
+
+      - name: Cargo check
+        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml
