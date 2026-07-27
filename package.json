@@ -23,6 +23,7 @@
     "update:icons": "./scripts/update-icons.sh",
     "convert:assets": "./scripts/convert-assets.sh",
     "lint": "biome lint .",
+    "test": "cd app && bun test",
     "typecheck": "bunx tsc -p app/tsconfig.json --noEmit && cd web && bunx tsc --noEmit",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",

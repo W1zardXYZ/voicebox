@@ -29,6 +29,9 @@ jobs:
       - name: Typecheck app + web
         run: bun run typecheck
 
+      - name: Unit tests
+        run: bun run test
+
       - name: Build web smoke test
         run: bun run build:web
 

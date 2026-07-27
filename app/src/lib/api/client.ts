@@ -1,4 +1,5 @@
 import type { LanguageCode } from '@/lib/constants/languages';
+import { formatErrorDetail } from '@/lib/api/errors';
 import { useServerStore } from '@/stores/serverStore';
 import type {
   ActiveTasksResponse,
@@ -54,21 +55,6 @@ import type {
   CloudLoginStartResponse,
   CloudStatus,
 } from './types';
-
-function formatErrorDetail(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((e: Record<string, unknown>) => e.msg || e.message || JSON.stringify(e))
-      .join('; ');
-  }
-  if (detail && typeof detail === 'object') {
-    const obj = detail as Record<string, unknown>;
-    if (typeof obj.message === 'string') return obj.message;
-    return JSON.stringify(detail);
-  }
-  return fallback;
-}
 
 class ApiClient {
   private getBaseUrl(): string {

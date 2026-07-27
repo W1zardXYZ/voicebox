@@ -38,6 +38,7 @@ import {
   useUpdateStoryItemVolume,
 } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
+import { computeTrimValues } from '@/lib/utils/trim';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useStoryStore } from '@/stores/storyStore';
 
@@ -600,41 +601,17 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       const deltaMs = pixelsToMs(deltaX); // Signed delta in milliseconds
 
       const { item, initialTrimStart, initialTrimEnd } = trimStartItemRef.current;
-      const originalDurationMs = item.duration * 1000;
-
-      let newTrimStart = initialTrimStart;
-      let newTrimEnd = initialTrimEnd;
-
-      if (trimSide === 'start') {
-        // Moving right increases trim_start (trims more from start)
-        // Moving left decreases trim_start (restores from start)
-        newTrimStart = Math.round(
-          Math.max(
-            0,
-            Math.min(initialTrimStart + deltaMs, originalDurationMs - initialTrimEnd - 100),
-          ),
-        );
-      } else {
-        // Moving right decreases trim_end (restores from end)
-        // Moving left increases trim_end (trims more from end)
-        newTrimEnd = Math.round(
-          Math.max(
-            0,
-            Math.min(initialTrimEnd - deltaMs, originalDurationMs - initialTrimStart - 100),
-          ),
-        );
-      }
-
-      // Validate that we don't exceed duration
-      if (newTrimStart + newTrimEnd >= originalDurationMs - 100) {
-        return; // Don't allow trimming to less than 100ms
-      }
+      const newTrimValues = computeTrimValues(
+        trimSide,
+        deltaMs,
+        initialTrimStart,
+        initialTrimEnd,
+        item.duration * 1000,
+      );
+      if (!newTrimValues) return;
 
       // Update temporary trim values for visual feedback
-      setTempTrimValues({
-        trim_start_ms: newTrimStart,
-        trim_end_ms: newTrimEnd,
-      });
+      setTempTrimValues(newTrimValues);
     },
     [trimmingItem, trimSide, trimStartX, pixelsToMs],
   );
