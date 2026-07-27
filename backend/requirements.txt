@@ -17,9 +17,10 @@ qwen-tts>=0.0.5
 # LuxTTS (voice cloning engine)
 # piper-phonemize needs custom index (no PyPI wheels)
 --find-links https://k2-fsa.github.io/icefall/piper_phonemize.html
-# linacodec is a git-only dep of Zipvoice (uv-only source, pip can't resolve it)
-linacodec @ git+https://github.com/ysharma3501/LinaCodec.git
-Zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git
+# linacodec is a git-only dep of Zipvoice (uv-only source, pip can't resolve it).
+# Both are pinned to commits so a force-push upstream can't change what we ship.
+linacodec @ git+https://github.com/ysharma3501/LinaCodec.git@c0ae7c7285e121475c27592cfbb600624b714290
+Zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git@381b1609cb1d1afbf756b87809c623464cfd8ac5
 
 # Chatterbox TTS sub-dependencies (chatterbox-tts itself is installed
 # --no-deps in the setup script because it pins numpy<1.26 / torch==2.6

@@ -73,7 +73,7 @@ setup-python:
         echo "Detected Apple Silicon — installing MLX dependencies..."
         {{ pip }} install -r {{ backend_dir }}/requirements-mlx.txt
     fi
-    {{ pip }} install git+https://github.com/QwenLM/Qwen3-TTS.git
+    {{ pip }} install git+https://github.com/QwenLM/Qwen3-TTS.git@022e286b98fbec7e1e916cb940cdf532cd9f488e
     {{ pip }} install pyinstaller ruff pytest pytest-asyncio -q
     echo "Python environment ready."
 
@@ -109,7 +109,7 @@ setup-python:
     & "{{ pip }}" install -r {{ backend_dir }}/requirements.txt
     & "{{ pip }}" install --no-deps chatterbox-tts
     & "{{ pip }}" install --no-deps hume-tada
-    & "{{ pip }}" install git+https://github.com/QwenLM/Qwen3-TTS.git
+    & "{{ pip }}" install git+https://github.com/QwenLM/Qwen3-TTS.git@022e286b98fbec7e1e916cb940cdf532cd9f488e
     & "{{ pip }}" install pyinstaller ruff pytest pytest-asyncio -q
     Write-Host "Python environment ready."
 
