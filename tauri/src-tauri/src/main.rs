@@ -1193,9 +1193,14 @@ fn build_chord_bindings(
 /// On macOS this is the call that triggers the "Voicebox would like to receive
 /// keystrokes from any application" TCC prompt, since keytap's `Tap` creates
 /// the CGEventTap inside `HotkeyMonitor::spawn`.
+///
+/// This command (and `disable_hotkey` / `update_chord_bindings`) must stay
+/// `async` so it runs off the main thread: `update_bindings` joins the
+/// dispatcher, and the dispatcher's chord-effect path blocks on main-thread
+/// window calls — a sync command would deadlock with an effect in flight.
 #[cfg(desktop)]
 #[command]
-fn enable_hotkey(
+async fn enable_hotkey(
     app: tauri::AppHandle,
     state: State<'_, HotkeyState>,
     push_to_talk: Vec<String>,
@@ -1240,7 +1245,7 @@ fn enable_hotkey(
 /// without re-prompting for Input Monitoring permission.
 #[cfg(desktop)]
 #[command]
-fn disable_hotkey(state: State<'_, HotkeyState>) -> Result<(), String> {
+async fn disable_hotkey(state: State<'_, HotkeyState>) -> Result<(), String> {
     let mut slot = state.monitor.lock().map_err(|e| e.to_string())?;
     if let Some(monitor) = slot.as_mut() {
         monitor.update_bindings(hotkey_monitor::Bindings::new());
@@ -1259,7 +1264,7 @@ fn disable_hotkey(state: State<'_, HotkeyState>) -> Result<(), String> {
 /// dropping it from the chord.
 #[cfg(desktop)]
 #[command]
-fn update_chord_bindings(
+async fn update_chord_bindings(
     state: State<'_, HotkeyState>,
     push_to_talk: Vec<String>,
     toggle_to_talk: Vec<String>,
