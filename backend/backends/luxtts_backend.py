@@ -7,20 +7,18 @@ Wraps the LuxTTS (ZipVoice) model for zero-shot voice cloning.
 
 import asyncio
 import logging
-from typing import Optional, Tuple
 
 import numpy as np
 
-from . import TTSBackend
+from ..utils.cache import cache_voice_prompt, get_cache_key, get_cached_voice_prompt
 from .base import (
-    is_model_cached,
-    get_torch_device,
-    empty_device_cache,
-    manual_seed,
     combine_voice_prompts as _combine_voice_prompts,
+    empty_device_cache,
+    get_torch_device,
+    is_model_cached,
+    manual_seed,
     model_load_progress,
 )
-from ..utils.cache import get_cache_key, get_cached_voice_prompt, cache_voice_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +33,7 @@ class LuxTTSBackend:
         self.model = None
         self.model_size = "default"  # LuxTTS has only one model size
         self._device = None
+        self._model_load_lock = asyncio.Lock()
 
     def _get_device(self) -> str:
         return get_torch_device(allow_mps=True, allow_xpu=True)
@@ -61,8 +60,10 @@ class LuxTTSBackend:
         """Load the LuxTTS model."""
         if self.model is not None:
             return
-
-        await asyncio.to_thread(self._load_model_sync)
+        async with self._model_load_lock:
+            if self.model is not None:
+                return
+            await asyncio.to_thread(self._load_model_sync)
 
     def _load_model_sync(self):
         model_name = "luxtts"
@@ -105,7 +106,7 @@ class LuxTTSBackend:
         audio_path: str,
         reference_text: str,
         use_cache: bool = True,
-    ) -> Tuple[dict, bool]:
+    ) -> tuple[dict, bool]:
         """
         Create voice prompt from reference audio.
 
@@ -145,9 +146,9 @@ class LuxTTSBackend:
         text: str,
         voice_prompt: dict,
         language: str = "en",
-        seed: Optional[int] = None,
-        instruct: Optional[str] = None,
-    ) -> Tuple[np.ndarray, int]:
+        seed: int | None = None,
+        instruct: str | None = None,
+    ) -> tuple[np.ndarray, int]:
         """
         Generate audio from text using LuxTTS.
 
