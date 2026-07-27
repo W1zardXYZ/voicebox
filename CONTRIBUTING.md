@@ -18,9 +18,9 @@ Thank you for your interest in contributing to Voicebox! This document provides 
   curl -fsSL https://bun.sh/install | bash
   ```
 
-- **[Python 3.11+](https://python.org)** - For backend development
+- **[Python 3.12+](https://python.org)** - For backend development
   ```bash
-  python --version  # Should be 3.11 or higher
+  python --version  # Should be 3.12 or higher
   ```
 
 - **[Rust](https://rustup.rs)** - For Tauri desktop app (installed automatically by Tauri CLI)
@@ -91,7 +91,7 @@ On Windows, to build with CUDA support for local testing:
 just build-local  # Build CPU + CUDA server binaries + Tauri installer
 ```
 
-This builds the CPU sidecar (bundled with the app), the CUDA binary (placed in `%APPDATA%/com.voicebox.app/backends/` for runtime GPU switching), and the installable Tauri app.
+This builds the CPU sidecar (bundled with the app), the CUDA binary (placed in `%APPDATA%/sh.voicebox.app/backends/` for runtime GPU switching), and the installable Tauri app.
 
 Creates platform-specific installers (`.dmg`, `.msi`, `.AppImage`) in `tauri/src-tauri/target/release/bundle/`.
 
@@ -114,14 +114,6 @@ just build-server
 ```
 
 This makes PyInstaller use your local qwen-tts version instead of the pip-installed package.
-
-### Generate OpenAPI Client
-
-After starting the backend server:
-```bash
-./scripts/generate-api.sh
-```
-This downloads the OpenAPI schema and generates the TypeScript client in `app/src/lib/api/`
 
 ### Convert Assets to Web Formats
 
@@ -212,7 +204,7 @@ export const ProfileCard = (props) => { ... }
 - Follow PEP 8 style guide
 - Use type hints
 - Use async/await for I/O operations
-- Format with Black (if configured)
+- Format and lint with ruff (configured in `backend/pyproject.toml`)
 
 ```python
 # Good
@@ -242,9 +234,12 @@ voicebox/
 │       ├── lib/          # Utilities and API client
 │       └── hooks/        # React hooks
 ├── backend/          # Python FastAPI server
-│   ├── main.py       # API routes
-│   ├── tts.py        # Voice synthesis
-│   └── ...
+│   ├── main.py       # Entry point (FastAPI app assembled in app.py)
+│   ├── routes/       # API routers, one per domain
+│   ├── services/     # Business logic (generation, transcription, profiles, ...)
+│   ├── backends/     # TTS engine implementations
+│   ├── database/     # SQLAlchemy models, sessions, migrations
+│   └── tests/        # pytest suite
 ├── tauri/            # Desktop app wrapper
 │   └── src-tauri/    # Rust backend
 └── scripts/          # Build scripts
@@ -289,23 +284,26 @@ voicebox/
 
 When adding new API endpoints:
 
-1. **Add route in `backend/main.py`**
+1. **Add the route to the relevant router in `backend/routes/`** (new routers get registered in `backend/routes/__init__.py`)
 2. **Create Pydantic models in `backend/models.py`**
 3. **Implement business logic in appropriate module**
 4. **Update OpenAPI schema** (automatic with FastAPI)
-5. **Regenerate TypeScript client:**
-   ```bash
-   bun run generate:api
-   ```
+5. **Update the TypeScript client** — add matching types to `app/src/lib/api/types.ts` and a method to `app/src/lib/api/client.ts`
 6. **Update `backend/README.md`** with endpoint documentation
 
 ## Testing
 
-Currently, testing is primarily manual. When adding tests:
+Backend tests live in `backend/tests/` and run with pytest:
 
-- **Backend**: Use pytest for Python tests
-- **Frontend**: Use Vitest for React component tests
-- **E2E**: Use Playwright for end-to-end tests (future)
+```bash
+cd backend
+venv/bin/python -m pytest tests
+```
+
+CI runs the backend test suite on every PR, along with frontend lint and typecheck (`bun run lint`, `bun run typecheck`) and a `cargo check` of the Tauri app (see `.github/workflows/ci.yml`). Add backend tests alongside your changes where it makes sense.
+
+- **Frontend**: Vitest for React component tests (coverage is still sparse — contributions welcome)
+- **E2E**: Playwright for end-to-end tests (future)
 
 ## Pull Request Process
 
@@ -363,7 +361,7 @@ See [docs/content/docs/overview/troubleshooting.mdx](docs/content/docs/overview/
 
 **Quick fixes:**
 
-- **Backend won't start:** Check Python version (3.11+), ensure venv is activated, install dependencies
+- **Backend won't start:** Check Python version (3.12+), ensure venv is activated, install dependencies
 - **Tauri build fails:** Ensure Rust is installed, clean build with `cd tauri/src-tauri && cargo clean`
 - **OpenAPI client generation fails:** Ensure backend is running, check `curl http://localhost:17493/openapi.json`
 
@@ -379,7 +377,7 @@ See [docs/content/docs/overview/troubleshooting.mdx](docs/content/docs/overview/
 - [README.md](README.md) - Project overview
 - [backend/README.md](backend/README.md) - API documentation
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) - Living engineering roadmap: architecture, shipped vs in-flight work, prioritized open issues, candidate TTS engines under evaluation, architectural bottlenecks. Keep this updated when you ship significant features, close or backlog a model integration, or identify new bottlenecks.
-- [docs/AUTOUPDATER_QUICKSTART.md](docs/AUTOUPDATER_QUICKSTART.md) - Auto-updater setup
+- [docs/content/docs/developer/autoupdater.mdx](docs/content/docs/developer/autoupdater.mdx) - Auto-updater setup (published at [voicebox.sh docs](https://voicebox.sh/docs/developer/autoupdater))
 - [SECURITY.md](SECURITY.md) - Security policy
 - [CHANGELOG.md](CHANGELOG.md) - Version history
 

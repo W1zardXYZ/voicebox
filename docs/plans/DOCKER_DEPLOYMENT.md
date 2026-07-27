@@ -90,7 +90,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy application
 COPY backend/ /app/backend/
-COPY requirements.txt /app/
+COPY backend/requirements.txt /app/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

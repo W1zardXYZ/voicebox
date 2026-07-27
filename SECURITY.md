@@ -6,8 +6,8 @@ We release patches for security vulnerabilities. Which versions are eligible for
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+| 0.5.x   | :white_check_mark: |
+| < 0.5   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -39,7 +39,7 @@ We will:
 ### For Developers
 
 - **Dependencies** - Keep all dependencies up to date
-- **Code review** - All PRs require review before merging
+- **CI checks** - Every PR must pass typecheck, lint, backend tests, and `cargo check` before merging
 - **Secrets** - Never commit API keys or signing keys
 - **Signing** - All releases are cryptographically signed
 
@@ -82,7 +82,7 @@ Timeline may vary based on severity and complexity.
 ## Security Updates
 
 Security updates will be:
-- Released as patch versions (e.g., 0.3.2)
+- Released as patch versions (e.g., 0.5.1)
 - Documented in CHANGELOG.md
 - Announced via GitHub releases
 - Automatically delivered via auto-updater
