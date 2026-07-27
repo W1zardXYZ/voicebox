@@ -1,10 +1,7 @@
 import {
-	ArrowUpRight,
 	Check,
 	Cloud,
-	Flame,
 	Heart,
-	Lock,
 	Rocket,
 	ShieldCheck,
 } from "lucide-react";
@@ -14,8 +11,6 @@ import {Navbar} from "@/components/Navbar";
 import {TokenSection} from "@/components/TokenSection";
 import {TokenStatsSection} from "@/components/TokenStats";
 import {
-	TOKEN_PROOFS,
-	TOKEN_SOLSCAN_URL,
 	TOKEN_TICKER,
 } from "@/lib/constants";
 

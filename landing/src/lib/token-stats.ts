@@ -9,7 +9,6 @@
 //     for price — nothing is asserted that can't be verified on Solscan.
 
 import {
-  TOKEN_BURN_ADDRESS,
   TOKEN_CONTRACT_ADDRESS,
   TOKEN_CREATOR_ADDRESS,
   TOKEN_DEV_WALLETS,

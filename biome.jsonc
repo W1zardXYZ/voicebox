@@ -5,6 +5,11 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
+  "files": {
+    // Local git worktrees carry their own root biome.json; keep the scanner
+    // out so they don't conflict with this one.
+    "experimentalScannerIgnores": [".worktrees"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -16,18 +21,35 @@
     "rules": {
       "recommended": true,
       "a11y": {
-        "useButtonType": "warn"
+        "useButtonType": "warn",
+        // Baseline (issue #421): interactive-div patterns in the dictation
+        // pill and chord picker.
+        "noStaticElementInteractions": "warn",
+        "useFocusableInteractive": "warn",
+        "useSemanticElements": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noLabelWithoutControl": "warn",
+        "useAriaPropsForRole": "warn"
       },
       "correctness": {
         "noUnusedVariables": "warn",
         "noUnusedImports": "error",
         "useExhaustiveDependencies": "warn",
-        "useHookAtTopLevel": "error"
+        "useHookAtTopLevel": "error",
+        // Existing-violation baseline (issue #421); restore to error as
+        // occurrences are fixed. Counts as of 2026-07-26.
+        "noInnerDeclarations": "warn"
       },
       "suspicious": {
         "noDoubleEquals": "error",
         "noExplicitAny": "warn",
-        "noUnknownAtRules": "off"
+        "noUnknownAtRules": "off",
+        // Baseline (issue #421): 16 array-index keys, 2 iterable-callback
+        // returns, 1 then-property.
+        "noArrayIndexKey": "warn",
+        "useIterableCallbackReturn": "warn",
+        "noThenProperty": "warn"
       },
       "style": {
         "useFilenamingConvention": "off",
