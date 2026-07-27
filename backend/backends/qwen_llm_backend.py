@@ -9,18 +9,16 @@ and STT engines.
 
 import asyncio
 import logging
-from typing import Optional
 
-from . import LLMBackend, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
+from ..services.mlx_thread import clear_mlx_cache, run_on_mlx_thread
+from ..utils.hf_offline_patch import force_offline_if_cached
+from . import DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TEMPERATURE
 from .base import (
-    is_model_cached,
-    get_torch_device,
     empty_device_cache,
-    manual_seed,
+    get_torch_device,
+    is_model_cached,
     model_load_progress,
 )
-from ..services.mlx_thread import run_on_mlx_thread, clear_mlx_cache
-from ..utils.hf_offline_patch import force_offline_if_cached
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +42,8 @@ def _progress_name(model_size: str) -> str:
 
 def _build_messages(
     prompt: str,
-    system: Optional[str],
-    examples: Optional[list[tuple[str, str]]] = None,
+    system: str | None,
+    examples: list[tuple[str, str]] | None = None,
 ) -> list[dict]:
     messages: list[dict] = []
     if system:
@@ -65,7 +63,7 @@ class PyTorchQwenLLMBackend:
         self.model = None
         self.tokenizer = None
         self.model_size = model_size
-        self._current_model_size: Optional[str] = None
+        self._current_model_size: str | None = None
         self.device = self._get_device()
 
     def _get_device(self) -> str:
@@ -82,7 +80,7 @@ class PyTorchQwenLLMBackend:
     def _is_model_cached(self, model_size: str) -> bool:
         return is_model_cached(self._get_model_path(model_size))
 
-    async def load_model(self, model_size: Optional[str] = None) -> None:
+    async def load_model(self, model_size: str | None = None) -> None:
         if model_size is None:
             model_size = self.model_size
 
@@ -132,11 +130,11 @@ class PyTorchQwenLLMBackend:
     async def generate(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
-        model_size: Optional[str] = None,
-        examples: Optional[list[tuple[str, str]]] = None,
+        model_size: str | None = None,
+        examples: list[tuple[str, str]] | None = None,
     ) -> str:
         await self.load_model(model_size)
         return await asyncio.to_thread(
@@ -146,10 +144,10 @@ class PyTorchQwenLLMBackend:
     def _generate_sync(
         self,
         prompt: str,
-        system: Optional[str],
+        system: str | None,
         max_tokens: int,
         temperature: float,
-        examples: Optional[list[tuple[str, str]]] = None,
+        examples: list[tuple[str, str]] | None = None,
     ) -> str:
         import torch
 
@@ -187,7 +185,7 @@ class MLXQwenLLMBackend:
         self.model = None
         self.tokenizer = None
         self.model_size = model_size
-        self._current_model_size: Optional[str] = None
+        self._current_model_size: str | None = None
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -203,7 +201,7 @@ class MLXQwenLLMBackend:
             weight_extensions=(".safetensors", ".bin", ".npz"),
         )
 
-    def _ensure_loaded_sync(self, model_size: Optional[str]) -> None:
+    def _ensure_loaded_sync(self, model_size: str | None) -> None:
         """Load the model if the requested size isn't already resident.
 
         Runs on the MLX worker thread so it stays serialized with generation.
@@ -219,7 +217,7 @@ class MLXQwenLLMBackend:
 
         self._load_model_sync(model_size)
 
-    async def load_model(self, model_size: Optional[str] = None) -> None:
+    async def load_model(self, model_size: str | None = None) -> None:
         await run_on_mlx_thread(self._ensure_loaded_sync, model_size)
 
     async def unload(self) -> None:
@@ -261,11 +259,11 @@ class MLXQwenLLMBackend:
     async def generate(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
-        model_size: Optional[str] = None,
-        examples: Optional[list[tuple[str, str]]] = None,
+        model_size: str | None = None,
+        examples: list[tuple[str, str]] | None = None,
     ) -> str:
         # Load-if-needed and inference run as one job on the MLX worker so a
         # concurrent unload or different-size load can't land between them.
@@ -278,10 +276,10 @@ class MLXQwenLLMBackend:
     def _generate_sync(
         self,
         prompt: str,
-        system: Optional[str],
+        system: str | None,
         max_tokens: int,
         temperature: float,
-        examples: Optional[list[tuple[str, str]]] = None,
+        examples: list[tuple[str, str]] | None = None,
     ) -> str:
         from mlx_lm import generate as mlx_generate
         from mlx_lm.sample_utils import make_sampler

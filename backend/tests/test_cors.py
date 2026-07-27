@@ -4,64 +4,34 @@ Tests for CORS origin restrictions.
 Validates that the CORS middleware only allows known local origins
 and respects the VOICEBOX_CORS_ORIGINS environment variable.
 
-Uses a minimal FastAPI app that mirrors the exact CORS configuration
-from backend/main.py, so tests run without heavy ML dependencies.
-
-Usage:
-    pip install httpx pytest fastapi starlette
-    python -m pytest backend/tests/test_cors.py -v
+Builds the app via the real ``backend.app.create_app`` factory so the
+tests exercise the actual CORS configuration rather than a copy of it.
 """
 
-import os
 import pytest
-from unittest.mock import patch
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.testclient import TestClient
 
-
-def _build_app(env_origins: str = "") -> FastAPI:
-    """
-    Build a minimal FastAPI app with the same CORS logic as backend/main.py.
-
-    This mirrors the exact code in main.py so the test validates the real
-    configuration without needing torch/numpy/transformers installed.
-    """
-    app = FastAPI()
-
-    _default_origins = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:17493",
-        "http://127.0.0.1:17493",
-        "tauri://localhost",
-        "https://tauri.localhost",
-    ]
-    _cors_origins = _default_origins + [o.strip() for o in env_origins.split(",") if o.strip()]
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @app.get("/health")
-    async def health():
-        return {"status": "ok"}
-
-    return app
+from backend.app import create_app
 
 
-@pytest.fixture()
-def client():
-    return TestClient(_build_app())
+def _build_client(monkeypatch, env_origins: str | None = None) -> TestClient:
+    if env_origins is None:
+        monkeypatch.delenv("VOICEBOX_CORS_ORIGINS", raising=False)
+    else:
+        monkeypatch.setenv("VOICEBOX_CORS_ORIGINS", env_origins)
+    # Plain TestClient (no context manager) skips lifespan startup, so no
+    # model scans or queue workers run — only middleware is exercised.
+    return TestClient(create_app())
 
 
-@pytest.fixture()
-def client_with_custom_origins():
-    return TestClient(_build_app("https://custom.example.com,https://other.example.com"))
+@pytest.fixture
+def client(monkeypatch):
+    return _build_client(monkeypatch)
+
+
+@pytest.fixture
+def client_with_custom_origins(monkeypatch):
+    return _build_client(monkeypatch, "https://custom.example.com,https://other.example.com")
 
 
 def _get_with_origin(client: TestClient, origin: str) -> dict:
@@ -92,6 +62,7 @@ class TestCORSDefaultOrigins:
         "http://127.0.0.1:17493",
         "tauri://localhost",
         "https://tauri.localhost",
+        "http://tauri.localhost",
     ])
     def test_allowed_origins(self, client, origin):
         headers = _get_with_origin(client, origin)
@@ -143,20 +114,17 @@ class TestCORSCustomOrigins:
 class TestCORSEnvVarParsing:
     """Edge cases for VOICEBOX_CORS_ORIGINS parsing."""
 
-    def test_empty_env_var(self):
-        app = _build_app("")
-        client = TestClient(app)
+    def test_empty_env_var(self, monkeypatch):
+        client = _build_client(monkeypatch, "")
         headers = _get_with_origin(client, "http://evil.com")
         assert "access-control-allow-origin" not in headers
 
-    def test_whitespace_trimmed(self):
-        app = _build_app("  https://spaced.example.com  ")
-        client = TestClient(app)
+    def test_whitespace_trimmed(self, monkeypatch):
+        client = _build_client(monkeypatch, "  https://spaced.example.com  ")
         headers = _get_with_origin(client, "https://spaced.example.com")
         assert headers.get("access-control-allow-origin") == "https://spaced.example.com"
 
-    def test_trailing_comma_ignored(self):
-        app = _build_app("https://one.example.com,")
-        client = TestClient(app)
+    def test_trailing_comma_ignored(self, monkeypatch):
+        client = _build_client(monkeypatch, "https://one.example.com,")
         headers = _get_with_origin(client, "https://one.example.com")
         assert headers.get("access-control-allow-origin") == "https://one.example.com"

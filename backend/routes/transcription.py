@@ -29,8 +29,8 @@ async def transcribe_audio(
         tmp_path = tmp.name
 
     try:
-        from ..utils.audio import load_audio
         from ..backends import WHISPER_HF_REPOS
+        from ..utils.audio import load_audio
 
         audio, sr = await asyncio.to_thread(load_audio, tmp_path)
         duration = len(audio) / sr

@@ -10,8 +10,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from .. import config, models
-from ..services import history, personality, profiles, tts
 from ..database import Generation as DBGeneration, VoiceProfile as DBVoiceProfile, get_db
+from ..services import history, personality, profiles, tts
 from ..services.generation import run_generation
 from ..services.task_queue import cancel_generation as cancel_generation_job, enqueue_generation
 from ..utils.audio import load_audio
@@ -321,7 +321,12 @@ async def stream_speech(
     db: Session = Depends(get_db),
 ):
     """Generate speech and stream the WAV audio directly without saving to disk."""
-    from ..backends import get_tts_backend_for_engine, ensure_model_cached_or_raise, load_engine_model, engine_needs_trim
+    from ..backends import (
+        engine_needs_trim,
+        ensure_model_cached_or_raise,
+        get_tts_backend_for_engine,
+        load_engine_model,
+    )
 
     profile = await profiles.get_profile(data.profile_id, db)
     if not profile:
