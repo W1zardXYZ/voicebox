@@ -37,6 +37,7 @@ Thumbs.db
 # Data (user-generated)
 data/
 !data/.gitkeep
+output/
 
 # Logs
 *.log
