@@ -7,14 +7,21 @@ dictionary phonemes to text going into TTS.
 import logging
 import re
 
+from ..database import session as db_session
 from ..database.models import PronunciationDictionary
-from ..database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
 
+def _session():
+    """Return a live DB session (resolved at call time so the post-init
+    ``SessionLocal`` global is used — importing it at module load would
+    capture ``None`` before ``init_db()`` runs)."""
+    return db_session.SessionLocal()
+
+
 def list_entries(language: str | None = None) -> list[dict]:
-    db = SessionLocal()
+    db = _session()
     try:
         q = db.query(PronunciationDictionary)
         if language and language != "ALL":
@@ -36,7 +43,7 @@ def list_entries(language: str | None = None) -> list[dict]:
 
 
 def upsert_entry(word: str, phonemes: str, language: str = "ALL", notes: str | None = None) -> dict:
-    db = SessionLocal()
+    db = _session()
     try:
         key = word.strip().lower()
         row = db.query(PronunciationDictionary).filter_by(word=key).first()
@@ -66,7 +73,7 @@ def upsert_entry(word: str, phonemes: str, language: str = "ALL", notes: str | N
 
 
 def delete_entry(entry_id_or_word: str) -> bool:
-    db = SessionLocal()
+    db = _session()
     try:
         row = (
             db.query(PronunciationDictionary)

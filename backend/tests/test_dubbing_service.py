@@ -19,14 +19,14 @@ from backend.database.models import Base
 def _fresh_dubbing_session():
     """Build a throwaway SQLite engine + session for the dubbing module."""
     tmp = Path(tempfile.mkdtemp(prefix="dub_test_"))
-    engine = create_engine(f"sqlite:///{tmp / 'test.db'}", connect_args={"check_same_thread": False})
+    engine = create_engine(f"sqlite:///{tmp/'test.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    from backend.services import dubbing
+    from backend.database import session as db_session
 
-    # Point the dubbing module at our session factory.
-    dubbing.SessionLocal = session_factory
+    # Point the live session global at our factory (resolved at call time).
+    db_session.SessionLocal = session_factory
     return session_factory, tmp
 
 
@@ -128,3 +128,37 @@ def test_resolve_profile_voice_reuses_cached_engine():
         assert dubbing._resolve_profile_voice("missing-id") == ("qwen", "1.7B")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_session_resolves_after_init():
+    """Regression: services must NOT capture SessionLocal=None at import time.
+
+    The live global in ``backend.database.session`` is only set by
+    ``init_db()`` at app startup; importing ``SessionLocal`` from inside the
+    service module at import time captures ``None``. ``_session()`` reads the
+    global at call time, so it must work even when imported before init_db.
+    """
+    import backend.database.session as db_session
+    from backend.services import dictionary, dubbing
+
+    # Simulate the pre-init state, then a live session after init.
+    tmp = Path(tempfile.mkdtemp(prefix="dub_test_live_"))
+    engine = create_engine(f"sqlite:///{tmp/'test.db'}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    db_session.SessionLocal = None  # pre-init
+    try:
+        # Their helpers can still be resolved (no crash at import) — real work
+        # happens once the global is set.
+        assert callable(dictionary._session)
+        assert callable(dubbing._session)
+    finally:
+        db_session.SessionLocal = factory  # post-init
+
+    # Now both services can open real sessions.
+    d1 = dictionary._session()
+    d2 = dubbing._session()
+    d1.close()
+    d2.close()
+    shutil.rmtree(tmp, ignore_errors=True)

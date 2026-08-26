@@ -18,13 +18,20 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from .. import config
+from ..database import session as db_session
 from ..database.models import DubbingProject, DubbingSegment, DubbingSpeaker, VoiceProfile
-from ..database.session import SessionLocal
 from . import diarization as diarization_service, segmentation, translation as translation_service
 
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 44100
+
+
+def _session():
+    """Return a live DB session (resolved at call time so the post-init
+    ``SessionLocal`` global is used — importing it at module load would
+    capture ``None`` before ``init_db()`` runs)."""
+    return db_session.SessionLocal()
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +55,7 @@ def create_project(
     translation_style: str = "Natural",
     duration: float = 0.0,
 ) -> DubbingProject:
-    db = SessionLocal()
+    db = _session()
     try:
         project = DubbingProject(
             name=name,
@@ -69,7 +76,7 @@ def create_project(
 
 
 def get_project(project_id: str) -> DubbingProject | None:
-    db = SessionLocal()
+    db = _session()
     try:
         return db.query(DubbingProject).filter_by(id=project_id).first()
     finally:
@@ -77,7 +84,7 @@ def get_project(project_id: str) -> DubbingProject | None:
 
 
 def list_projects() -> list[dict]:
-    db = SessionLocal()
+    db = _session()
     try:
         rows = db.query(DubbingProject).order_by(DubbingProject.created_at.desc()).all()
         out = []
@@ -135,7 +142,7 @@ def set_project_status(db: Session, project_id: str, status: str, stage: str | N
 
 
 def list_segments(project_id: str) -> list[dict]:
-    db = SessionLocal()
+    db = _session()
     try:
         rows = (
             db.query(DubbingSegment)
@@ -180,7 +187,7 @@ def update_segment(
     is_locked: bool | None = None,
     speaker_id: str | None = None,
 ) -> dict | None:
-    db = SessionLocal()
+    db = _session()
     try:
         seg = db.query(DubbingSegment).filter_by(id=segment_id).first()
         if seg is None:
@@ -210,7 +217,7 @@ def update_segment(
 
 async def resynthesize_segment(segment_id: str) -> dict | None:
     """Re-run TTS for a single segment using its current translated text."""
-    db = SessionLocal()
+    db = _session()
     try:
         seg = db.query(DubbingSegment).filter_by(id=segment_id).first()
         if seg is None:
@@ -239,7 +246,7 @@ async def resynthesize_segment(segment_id: str) -> dict | None:
 
 async def run_pipeline(project_id: str) -> None:
     """Run the full dubbing pipeline for a project (background task)."""
-    db = SessionLocal()
+    db = _session()
     try:
         project = db.query(DubbingProject).filter_by(id=project_id).first()
         if project is None:
@@ -427,7 +434,7 @@ async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path)
 
     # Resolve the voice: speaker mapping → profile → default profile id.
     voice_profile_id = None
-    db = SessionLocal()
+    db = _session()
     try:
         if seg.speaker_id:
             spk = db.query(DubbingSpeaker).filter_by(id=seg.speaker_id).first()
@@ -465,7 +472,7 @@ def _resolve_profile_voice(profile_id: str) -> tuple[str, str]:
       2. ``default_engine`` if it's a known, loaded-able engine.
       3. ``qwen``/``1.7B`` — the cached MLX Qwen3-TTS (no download).
     """
-    db = SessionLocal()
+    db = _session()
     try:
         row = db.query(VoiceProfile).filter_by(id=profile_id).first()
     finally:
@@ -493,7 +500,7 @@ async def _find_default_profile() -> str:
     """Return an existing voice-profile id for synthesis (first available)."""
     from ..services import profiles
 
-    db = SessionLocal()
+    db = _session()
     try:
         resp = await profiles.list_profiles(db)
     finally:
@@ -625,7 +632,7 @@ async def export_video(project_id: str) -> Path | None:
     import shutil as _shutil
     import subprocess as _subprocess
 
-    db = SessionLocal()
+    db = _session()
     try:
         project = db.query(DubbingProject).filter_by(id=project_id).first()
         if project is None:
