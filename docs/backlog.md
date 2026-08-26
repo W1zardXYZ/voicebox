@@ -155,9 +155,13 @@ friction point.
 
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 1 | Empty-WAV guard in `_assemble_track` | High | Backlog (root-cause identified) |
-| 2 | Translation model selection + better LLM | Medium | Backlog |
-| 3 | Auto-create / choose dubbing voice profile | Med-High | Backlog (needs design Q&A) |
-| 4 | Pipeline download/status clarity | Medium | Backlog (needs design Q&A) |
-| 5 | Prosody on-by-default + per-piece | — | DECIDED → next milestone |
-| 6 | Default-profile friction | Low | Backlog (ties into #3) |
+| 1 | Empty-WAV guard in `_assemble_track` | High | ✅ Done (`b2164a7`) |
+| 2 | Translation model selection + better LLM | Medium | ✅ Selection done (`f3bf1b9`); better-LLM research open |
+| 3 | Auto-create / choose dubbing voice profile | Med-High | ✅ Done (`3a6426f`) |
+| 4 | Pipeline download/status clarity | Medium | ✅ Done (`5941bea`) |
+| 5 | Prosody on-by-default + per-piece | — | ✅ Done (`9518ba4`, m07) |
+| 6 | Default-profile friction | Low | ✅ Resolved via #3 auto-clone |
+
+**Remaining open items (not code):**
+- Better-than-4B translation model research (see #2 notes; Web search was offline).
+- Measure Qwen CustomVoice's `instruct` marker fidelity on hardware (m07 open question).
