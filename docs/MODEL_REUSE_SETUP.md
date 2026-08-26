@@ -85,6 +85,14 @@ just dev-web
 If you prefer Parakeet, its one-time download is contained; diarization needs
 the `HF_TOKEN` and downloads once.
 
+> **Fallback note:** the dubbing/capture pipeline now stays on **Whisper by
+> default** and gracefully degrades from Parakeet to Whisper when `nemo-toolkit`
+> isn't installed (no more `ModuleNotFoundError: No module named 'nemo'` crash).
+> To simulate the full pipeline on a machine without models, run
+> `backend/tests/test_dubbing_pipeline_simulation.py` — it fakes only the STT /
+> diarization / translation / TTS boundaries and reaches `ready` with real
+> extraction + assembly.
+
 ## 5. What gets created/changed on the test box
 
 - `data/voicebox.db` — SQLite DB (projects, segments, dictionary, profiles).

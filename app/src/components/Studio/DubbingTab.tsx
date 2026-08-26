@@ -175,7 +175,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
   const [name, setName] = useState('');
   const [source, setSource] = useState('en');
   const [target, setTarget] = useState('de');
-  const [stt, setStt] = useState('parakeet');
+  const [stt, setStt] = useState('whisper');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

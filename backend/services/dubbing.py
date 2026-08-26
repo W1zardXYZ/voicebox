@@ -51,7 +51,7 @@ def create_project(
     source_language: str,
     target_language: str,
     source_path: str,
-    stt_engine: str = "parakeet",
+    stt_engine: str = "whisper",
     translation_style: str = "Natural",
     duration: float = 0.0,
 ) -> DubbingProject:
@@ -269,14 +269,14 @@ async def run_pipeline(project_id: str) -> None:
         # 2. TRANSCRIBE — word-timestamped segments (Parakeet / Whisper).
         from ..services import transcribe
 
-        if project.stt_engine == "parakeet":
-            backend = transcribe.get_parakeet_model()
+        # Graceful fallback: if Parakeet/nemo is unavailable, drop to Whisper.
+        backend, resolved_engine = transcribe.resolve_stt_backend(project.stt_engine)
+        if resolved_engine == "parakeet":
             await backend.load_model_async("v3-0.6b")
             raw = await backend.transcribe_segments(
                 str(master_wav), language=project.source_language, model_size="v3-0.6b"
             )
         else:
-            backend = transcribe.get_whisper_model()
             await backend.load_model_async("turbo")
             text = await backend.transcribe(str(master_wav), language=project.source_language, model_size="turbo")
             raw = [{"text": text, "start": 0.0, "end": project.duration or 1.0, "words": []}]
