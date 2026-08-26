@@ -815,3 +815,93 @@ class CloudStatusResponse(BaseModel):
     key_prefix: Optional[str] = None
     connected_at: Optional[datetime] = None
     dashboard_url: str
+
+
+# ─── Transcription / Diarization / Dictionary / Translation ─────────────
+
+
+class WordSegment(BaseModel):
+    """A single word with timestamps."""
+
+    word: str
+    start: float
+    end: float
+    probability: float = 1.0
+
+
+class TranscriptionSegment(BaseModel):
+    """A transcript segment with optional word timestamps and speaker."""
+
+    text: str
+    start: float
+    end: float
+    words: List[WordSegment] = []
+    speaker_id: Optional[str] = None
+
+
+class TranscriptionSegmentsResponse(BaseModel):
+    """Full word-level transcription for dubbing/diarization."""
+
+    engine: str = "whisper"
+    language: Optional[str] = None
+    duration: float
+    segments: List[TranscriptionSegment]
+
+
+class DiarizationRequest(BaseModel):
+    """Request for speaker diarization."""
+
+    num_speakers: Optional[int] = Field(None, ge=1, le=20)
+
+
+class SpeakerTurn(BaseModel):
+    """A diarization turn."""
+
+    speaker_id: str
+    start: float
+    end: float
+
+
+class DiarizationResponse(BaseModel):
+    """Response with all speaker turns."""
+
+    engine: str = "pyannote"
+    turns: List[SpeakerTurn]
+
+
+class DictionaryEntryRequest(BaseModel):
+    """Create/update a pronunciation dictionary entry."""
+
+    word: str
+    phonemes: str
+    language: str = "ALL"
+    notes: Optional[str] = None
+
+
+class DictionaryEntryResponse(BaseModel):
+    """A pronunciation dictionary entry."""
+
+    id: str
+    word: str
+    phonemes: str
+    language: str = "ALL"
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class TranslationRequest(BaseModel):
+    """Translation request with optional character budget (dubbing length-fit)."""
+
+    text: str
+    source_lang: str
+    target_lang: str
+    max_chars: Optional[int] = Field(None, ge=1)
+    min_chars: Optional[int] = Field(None, ge=0)
+    tone: str = "natural"
+    context: Optional[str] = None
+
+
+class TranslationResponse(BaseModel):
+    """Translation result."""
+
+    text: str

@@ -54,7 +54,7 @@ ignore = [
 # Per-file rule overrides.
 [tool.ruff.lint.per-file-ignores]
 # Tests can use assert, print, and magic values freely.
-"tests/**" = ["S101", "T201", "PLR2004", "ERA001"]
+"tests/**" = ["S101", "T201", "PLR2004", "ERA001", "RUF001"]
 # __init__.py re-exports are expected to have unused imports.
 "**/__init__.py" = ["F401"]
 # Entry points and scripts legitimately use print.
