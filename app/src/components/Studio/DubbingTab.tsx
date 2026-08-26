@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   apiClient,
   type DubbingProject,
@@ -416,6 +416,27 @@ function ProjectPanel({
   const project = projectQuery.data;
   const segments = segmentsQuery.data ?? [];
 
+  // Once the dub is ready without an exported video, auto-export so the
+  // "Download video" button is available (ffmpeg must be present; a missing
+  // ffmpeg is non-fatal — the button simply stays hidden).
+  const autoExported = useRef(false);
+  useEffect(() => {
+    if (
+      project?.status === 'ready' &&
+      !project.dubbed_video_path &&
+      !autoExported.current
+    ) {
+      autoExported.current = true;
+      apiClient
+        .exportDubbedVideo(projectId)
+        .then(() => queryClient.invalidateQueries({ queryKey: ['dubbing-project', projectId] }))
+        .catch(() => {
+          // ffmpeg not available / export failed — keep manual Export button.
+          autoExported.current = false;
+        });
+    }
+  }, [project?.status, project?.dubbed_video_path, project?.stage, projectId, queryClient]);
+
   const run = async () => {
     setRunning(true);
     setError(null);
@@ -476,18 +497,47 @@ function ProjectPanel({
       )}
 
       {project?.status === 'ready' && (
-        <div className="flex items-center gap-3">
-          <button
-            onClick={exportVideo}
-            disabled={exporting}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50 disabled:opacity-40"
-          >
-            {exporting ? 'Exporting…' : 'Export video'}
-          </button>
-          {project.dubbed_video_path && (
-            /* biome-ignore lint/a11y/useMediaCaption: exported dub video, no captions payload */
-            <video controls src={apiClient.dubbedVideoUrl(projectId)} className="h-40 rounded-lg" />
-          )}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-emerald-400">
+              ✓ Ready to download
+            </h3>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Your dubbed audio is done. Export the video or download any part below.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href={apiClient.dubbedAudioUrl(projectId)}
+              download={`${project?.name ?? 'dub'}.wav`}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50"
+            >
+              Download audio (WAV)
+            </a>
+            <a
+              href={apiClient.dubbingTranscriptUrl(projectId)}
+              download={`${project?.name ?? 'dub'}-transcript.txt`}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50"
+            >
+              Download transcript (TXT)
+            </a>
+            <button
+              onClick={exportVideo}
+              disabled={exporting}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50 disabled:opacity-40"
+            >
+              {exporting ? 'Exporting…' : 'Export video'}
+            </button>
+            {project.dubbed_video_path && (
+              <a
+                href={apiClient.dubbedVideoUrl(projectId)}
+                download={`${project?.name ?? 'dub'}.mp4`}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50"
+              >
+                Download video (MP4)
+              </a>
+            )}
+          </div>
         </div>
       )}
 

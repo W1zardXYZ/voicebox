@@ -1036,6 +1036,10 @@ class ApiClient {
     return `${this.getBaseUrl()}/dubbing/video/${projectId}`;
   }
 
+  dubbingTranscriptUrl(projectId: string): string {
+    return `${this.getBaseUrl()}/dubbing/projects/${projectId}/transcript`;
+  }
+
   async exportDubbedVideo(projectId: string): Promise<{ success: boolean; video_path: string }> {
     return this.request<{ success: boolean; video_path: string }>(
       `/dubbing/projects/${projectId}/export`,

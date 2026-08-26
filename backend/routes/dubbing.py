@@ -9,7 +9,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from .. import config, models
 from ..database import session as db_session
@@ -181,6 +181,23 @@ async def get_dubbed_audio(project_id: str):
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Dubbed audio not ready")
     return FileResponse(str(path), media_type="audio/wav")
+
+
+@router.get("/dubbing/projects/{project_id}/transcript")
+async def get_dubbing_transcript(project_id: str):
+    """Download a plain-text transcript of the translated segments."""
+    project = dubbing.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    segments = dubbing.list_segments(project_id)
+    lines = []
+    for seg in segments:
+        text = seg.translated_text or seg.source_text
+        label = f"[{seg.sequence_index + 1}]"
+        if seg.speaker_id:
+            label += f" {seg.speaker_id}"
+        lines.append(f"{label}: {text}")
+    return PlainTextResponse("\n\n".join(lines), media_type="text/plain")
 
 
 @router.post("/dubbing/projects/{project_id}/export")
