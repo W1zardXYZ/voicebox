@@ -1,9 +1,9 @@
 """ORM model definitions for the voicebox SQLite database."""
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 
 from ..utils.capture_chords import (
@@ -301,3 +301,21 @@ class Capture(Base):
     llm_model = Column(String, nullable=True)
     refinement_flags = Column(Text, nullable=True)  # JSON blob
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PronunciationDictionary(Base):
+    """Pronunciation override for a specific word.
+
+    ``phonemes`` holds IPA or CMU Arpabet for the term. Applied upstream of TTS
+    so technical terms / proper nouns / acronyms are synthesized as intended.
+    """
+
+    __tablename__ = "pronunciation_dictionary"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    word = Column(String, unique=True, nullable=False, index=True)
+    phonemes = Column(Text, nullable=False)
+    language = Column(String, default="ALL")  # "ALL" applies to every language
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

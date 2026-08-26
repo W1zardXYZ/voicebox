@@ -1,0 +1,17 @@
+# Optional dependencies for the Parakeet V3 STT + speaker-diarization stack.
+# Install only on the machine that will actually run these models
+# (the off-site Macbook), NOT the base app, to keep the default install lean:
+#
+#   pip install -r backend/requirements-studio.txt
+#
+# Note: nemo-toolkit pulls its own torch build; on Apple Silicon prefer the
+# CPU build and expect slower Parakeet inference (there is no Metal path yet).
+# pyannote/speaker-diarization-3.1 is a gated HF repo — set HF_TOKEN.
+
+# Parakeet V3 STT (NVIDIA NeMo ASR)
+nemo-toolkit[asr]>=2.0.0
+
+# Speaker diarization (pyannote 3.1, gated repo — needs HF_TOKEN)
+pyannote.audio>=3.1
+speechbrain>=1.0
+torchaudio>=2.1.0

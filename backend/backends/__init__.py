@@ -10,13 +10,14 @@ and a model config registry that eliminates per-engine dispatch maps.
 # import time, which wraps transformers' tokenizer load against the
 # unconditional HuggingFace metadata call that otherwise raises on
 # HF_HUB_OFFLINE=1 and on network failures.
-from ..utils import hf_offline_patch  # noqa: F401
-
 import threading
 from dataclasses import dataclass, field
-from typing import Protocol, Optional, Tuple, List
-from typing_extensions import runtime_checkable
+from typing import List, Optional, Protocol, Tuple
+
 import numpy as np
+from typing_extensions import runtime_checkable
+
+from ..utils import hf_offline_patch
 
 DEFAULT_LLM_MAX_TOKENS = 512
 DEFAULT_LLM_TEMPERATURE = 0.7
@@ -44,6 +45,18 @@ WHISPER_HF_REPOS = {
     "turbo": "openai/whisper-large-v3-turbo",
 }
 
+# NVIDIA Parakeet V3 STT family. TDT (Transducer) emits word timestamps,
+# which powers the dubbing/diarization merge (Feature 1 + 2).
+PARAKEET_HF_REPOS = {
+    "v3-0.6b": "nvidia/parakeet-tdt-0.6b-v3",
+}
+
+# Speaker diarization model. HuggingFace accession is gated — requires an
+# authenticated HF token (HF_TOKEN) to download.
+DIARIZATION_HF_REPOS = {
+    "3.1": "pyannote/speaker-diarization-3.1",
+}
+
 
 @dataclass
 class ModelConfig:
@@ -59,6 +72,9 @@ class ModelConfig:
     retries_runaway: bool = False
     supports_instruct: bool = False
     languages: list[str] = field(default_factory=lambda: ["en"])
+    # STT engines that emit word-level timestamps (Parakeet, Whisper) can set
+    # this so downstream dubbing/diarization merge knows timestamps are available.
+    word_timestamps: bool = False
 
 
 @runtime_checkable
@@ -77,7 +93,7 @@ class TTSBackend(Protocol):
         audio_path: str,
         reference_text: str,
         use_cache: bool = True,
-    ) -> Tuple[dict, bool]:
+    ) -> tuple[dict, bool]:
         """
         Create voice prompt from reference audio.
 
@@ -88,9 +104,9 @@ class TTSBackend(Protocol):
 
     async def combine_voice_prompts(
         self,
-        audio_paths: List[str],
-        reference_texts: List[str],
-    ) -> Tuple[np.ndarray, str]:
+        audio_paths: list[str],
+        reference_texts: list[str],
+    ) -> tuple[np.ndarray, str]:
         """
         Combine multiple voice prompts.
 
@@ -104,9 +120,9 @@ class TTSBackend(Protocol):
         text: str,
         voice_prompt: dict,
         language: str = "en",
-        seed: Optional[int] = None,
-        instruct: Optional[str] = None,
-    ) -> Tuple[np.ndarray, int]:
+        seed: int | None = None,
+        instruct: str | None = None,
+    ) -> tuple[np.ndarray, int]:
         """
         Generate audio from text.
 
@@ -144,8 +160,8 @@ class STTBackend(Protocol):
     async def transcribe(
         self,
         audio_path: str,
-        language: Optional[str] = None,
-        model_size: Optional[str] = None,
+        language: str | None = None,
+        model_size: str | None = None,
     ) -> str:
         """
         Transcribe audio to text.
@@ -165,6 +181,65 @@ class STTBackend(Protocol):
 
 
 @runtime_checkable
+class DiarizationBackend(Protocol):
+    """Protocol for speaker-diarization backend implementations.
+
+    Assigns speaker ids to spans of audio so that word/segment timestamps
+    from an STT engine can be grouped by speaker (see services/diarize_merge.py).
+    """
+
+    async def load_model(self, model_size: str = "default") -> None:
+        """Load the diarization model."""
+        ...
+
+    async def diarize(
+        self,
+        audio_path: str,
+        num_speakers: int | None = None,
+    ) -> list[dict]:
+        """Run diarization over an audio file.
+
+        Returns a list of ``{speaker_id, start, end}`` dicts (seconds).
+        """
+        ...
+
+    def unload_model(self) -> None:
+        """Unload model to free memory."""
+        ...
+
+    def is_loaded(self) -> bool:
+        """Check if model is loaded."""
+        ...
+
+
+@runtime_checkable
+class TranslationBackend(Protocol):
+    """Protocol for text translation / length-fit backends.
+
+    ``translate_and_fit`` returns a target-language string that, given an
+    optional character budget, is expected to fit the original spoken
+    duration when re-synthesized (used by dubbing length-fitting).
+    """
+
+    async def translate_and_fit(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        max_chars: int | None = None,
+        min_chars: int | None = None,
+        tone: str = "natural",
+        context: str | None = None,
+    ) -> str:
+        """Translate ``text`` from source_lang to target_lang.
+
+        If ``max_chars``/``min_chars`` are provided, the returned text should
+        fall within that character budget when possible.
+        """
+        ...
+
+
+@runtime_checkable
 class LLMBackend(Protocol):
     """Protocol for local LLM (chat/completion) backend implementations."""
 
@@ -175,11 +250,11 @@ class LLMBackend(Protocol):
     async def generate(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
         temperature: float = DEFAULT_LLM_TEMPERATURE,
-        model_size: Optional[str] = None,
-        examples: Optional[list[tuple[str, str]]] = None,
+        model_size: str | None = None,
+        examples: list[tuple[str, str]] | None = None,
     ) -> str:
         """Run a single-turn chat completion and return the assistant reply.
 
@@ -199,10 +274,14 @@ class LLMBackend(Protocol):
 
 
 # Global backend instances
-_tts_backend: Optional[TTSBackend] = None
+_tts_backend: TTSBackend | None = None
 _tts_backends: dict[str, TTSBackend] = {}
 _tts_backends_lock = threading.Lock()
-_stt_backend: Optional[STTBackend] = None
+_stt_backend: STTBackend | None = None
+_diarization_backend: DiarizationBackend | None = None
+_diarization_backend_lock = threading.Lock()
+_translation_backend: TranslationBackend | None = None
+_translation_backend_lock = threading.Lock()
 _llm_backends: dict[str, LLMBackend] = {}
 _llm_backends_lock = threading.Lock()
 
@@ -216,6 +295,21 @@ TTS_ENGINES = {
     "chatterbox_turbo": "Chatterbox Turbo",
     "tada": "TADA",
     "kokoro": "Kokoro",
+}
+
+# STT engines beyond Whisper. Whisper stays the default; Parakeet is selectable.
+STT_ENGINES = {
+    "whisper": "Whisper",
+    "parakeet": "Parakeet V3",
+}
+
+# Diarization + translation are single-impl today (pyannote / LLM+OpenRouter).
+DIARIZATION_ENGINES = {
+    "pyannote": "Pyannote Diarization",
+}
+
+TRANSLATION_ENGINES = {
+    "llm": "Local / Cloud LLM",
 }
 
 LLM_ENGINES = {
@@ -415,6 +509,44 @@ def _get_whisper_configs() -> list[ModelConfig]:
     ]
 
 
+def _get_parakeet_configs() -> list[ModelConfig]:
+    """Return Parakeet V3 STT model configs.
+
+    Parakeet is torch/NeMo based (CUDA/CPU), so the accessible repo is the
+    TDT 0.6B v3 which emits word timestamps. Runs on Linux/Windows GPUs and
+    CPU; Apple Silicon falls back to CPU (no Metal path yet).
+    """
+    return [
+        ModelConfig(
+            model_name="parakeet-tdt-0.6b-v3",
+            display_name="Parakeet V3 (0.6B)",
+            engine="parakeet",
+            hf_repo_id="nvidia/parakeet-tdt-0.6b-v3",
+            model_size="v3-0.6b",
+            size_mb=2200,
+            word_timestamps=True,
+            languages=[
+                "en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it",
+            ],
+        ),
+    ]
+
+
+def _get_diarization_configs() -> list[ModelConfig]:
+    """Return speaker-diarization model configs."""
+    return [
+        ModelConfig(
+            model_name="pyannote-3.1",
+            display_name="Speaker Diarization 3.1",
+            engine="pyannote",
+            hf_repo_id="pyannote/speaker-diarization-3.1",
+            model_size="3.1",
+            size_mb=400,
+            languages=["en"],
+        ),
+    ]
+
+
 def _get_qwen_llm_configs() -> list[ModelConfig]:
     """Return Qwen3 LLM configs with backend-aware HF repo IDs.
 
@@ -467,12 +599,14 @@ def _get_qwen_llm_configs() -> list[ModelConfig]:
 
 
 def get_all_model_configs() -> list[ModelConfig]:
-    """Return the full list of model configs (TTS + STT + LLM)."""
+    """Return the full list of model configs (TTS + STT + LLM + auxiliary)."""
     return (
         _get_qwen_model_configs()
         + _get_qwen_custom_voice_configs()
         + _get_non_qwen_tts_configs()
         + _get_whisper_configs()
+        + _get_parakeet_configs()
+        + _get_diarization_configs()
         + _get_qwen_llm_configs()
     )
 
@@ -488,14 +622,19 @@ def get_llm_model_configs() -> list[ModelConfig]:
 
 
 def get_stt_model_configs() -> list[ModelConfig]:
-    """Return only STT (Whisper) model configs."""
-    return _get_whisper_configs()
+    """Return STT model configs (Whisper + Parakeet)."""
+    return _get_whisper_configs() + _get_parakeet_configs()
+
+
+def get_diarization_model_configs() -> list[ModelConfig]:
+    """Return speaker-diarization model configs."""
+    return _get_diarization_configs()
 
 
 # Lookup helpers — these replace the if/elif chains in main.py
 
 
-def get_model_config(model_name: str) -> Optional[ModelConfig]:
+def get_model_config(model_name: str) -> ModelConfig | None:
     """Look up a model config by model_name."""
     for cfg in get_all_model_configs():
         if cfg.model_name == model_name:
@@ -564,13 +703,27 @@ async def ensure_model_cached_or_raise(engine: str, model_size: str = "default")
 
 def unload_model_by_config(config: ModelConfig) -> bool:
     """Unload a model given its config. Returns True if it was loaded, False otherwise."""
+    from ..services import llm as llm_service, transcribe, tts
     from . import get_tts_backend_for_engine
-    from ..services import tts, transcribe, llm as llm_service
 
     if config.engine == "whisper":
         whisper_model = transcribe.get_whisper_model()
         if whisper_model.is_loaded() and whisper_model.model_size == config.model_size:
             transcribe.unload_whisper_model()
+            return True
+        return False
+
+    if config.engine == "parakeet":
+        parakeet_model = transcribe.get_parakeet_model()
+        if parakeet_model.is_loaded():
+            parakeet_model.unload_model()
+            return True
+        return False
+
+    if config.engine == "pyannote":
+        backend = get_diarization_backend()
+        if backend.is_loaded():
+            backend.unload_model()
             return True
         return False
 
@@ -608,13 +761,20 @@ def unload_model_by_config(config: ModelConfig) -> bool:
 
 def check_model_loaded(config: ModelConfig) -> bool:
     """Check if a model is currently loaded."""
+    from ..services import llm as llm_service, transcribe, tts
     from . import get_tts_backend_for_engine
-    from ..services import tts, transcribe, llm as llm_service
 
     try:
         if config.engine == "whisper":
             whisper_model = transcribe.get_whisper_model()
             return whisper_model.is_loaded() and getattr(whisper_model, "model_size", None) == config.model_size
+
+        if config.engine == "parakeet":
+            parakeet_model = transcribe.get_parakeet_model()
+            return parakeet_model.is_loaded()
+
+        if config.engine == "pyannote":
+            return get_diarization_backend().is_loaded()
 
         if config.engine == "qwen_llm":
             backend = llm_service.get_llm_model()
@@ -639,11 +799,17 @@ def check_model_loaded(config: ModelConfig) -> bool:
 
 def get_model_load_func(config: ModelConfig):
     """Return a callable that loads/downloads the model."""
+    from ..services import llm as llm_service, transcribe, tts
     from . import get_tts_backend_for_engine
-    from ..services import tts, transcribe, llm as llm_service
 
     if config.engine == "whisper":
         return lambda: transcribe.get_whisper_model().load_model(config.model_size)
+
+    if config.engine == "parakeet":
+        return lambda: transcribe.get_parakeet_model().load_model(config.model_size)
+
+    if config.engine == "pyannote":
+        return lambda: get_diarization_backend().load_model(config.model_size)
 
     if config.engine == "qwen":
         return lambda: tts.get_tts_model().load_model(config.model_size)
@@ -754,6 +920,70 @@ def get_stt_backend() -> STTBackend:
     return _stt_backend
 
 
+_parakeet_backend: Optional[STTBackend] = None
+_parakeet_backend_lock = threading.Lock()
+
+
+def get_stt_backend_for_engine(engine: str) -> STTBackend:
+    """
+    Get or create an STT backend for the given engine.
+
+    Args:
+        engine: "whisper" (platform default) or "parakeet".
+
+    Returns:
+        STT backend instance.
+    """
+    global _parakeet_backend
+
+    if engine == "whisper":
+        return get_stt_backend()
+    if engine == "parakeet":
+        from .parakeet_backend import ParakeetBackend
+
+        if _parakeet_backend is None:
+            with _parakeet_backend_lock:
+                if _parakeet_backend is None:
+                    _parakeet_backend = ParakeetBackend()
+        return _parakeet_backend
+    raise ValueError(f"Unknown STT engine: {engine}. Supported: {list(STT_ENGINES.keys())}")
+
+
+def get_diarization_backend() -> DiarizationBackend:
+    """Get or create the (pyannote) speaker-diarization backend."""
+    global _diarization_backend
+
+    if _diarization_backend is None:
+        with _diarization_backend_lock:
+            if _diarization_backend is None:
+                from .diarization_backend import PyannoteDiarizationBackend
+
+                _diarization_backend = PyannoteDiarizationBackend()
+
+    return _diarization_backend
+
+
+def get_translation_backend(provider: str | None = None) -> TranslationBackend:
+    """Get or create a translation backend.
+
+    ``provider`` selects the implementation; today only "llm" (local Qwen3 or
+    OpenRouter BYOK) exists, which shares the LLM backend abstraction.
+    """
+    global _translation_backend
+
+    if provider not in (None, "llm"):
+        raise ValueError(f"Unknown translation backend: {provider}. Supported: ['llm']")
+
+    if _translation_backend is None:
+        with _translation_backend_lock:
+            if _translation_backend is None:
+                from .translation_backend import LLMTranslationBackend
+
+                _translation_backend = LLMTranslationBackend()
+
+    return _translation_backend
+
+
 def get_llm_backend() -> LLMBackend:
     """Get or create the default Qwen3 LLM backend based on platform."""
     return get_llm_backend_for_engine("qwen_llm")
@@ -789,8 +1019,12 @@ def get_llm_backend_for_engine(engine: str) -> LLMBackend:
 
 def reset_backends():
     """Reset backend instances (useful for testing)."""
-    global _tts_backend, _tts_backends, _stt_backend, _llm_backends
+    global _tts_backend, _tts_backends, _stt_backend, _parakeet_backend, _diarization_backend
+    global _translation_backend, _llm_backends
     _tts_backend = None
     _tts_backends.clear()
     _stt_backend = None
+    _parakeet_backend = None
+    _diarization_backend = None
+    _translation_backend = None
     _llm_backends.clear()
