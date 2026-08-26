@@ -42,7 +42,7 @@ async def create_dubbing_project(
     name: str | None = Form(None),
     source_language: str = Form("en"),
     target_language: str = Form("en"),
-    stt_engine: str = Form("parakeet"),
+    stt_engine: str = Form("whisper"),
     translation_style: str = Form("Natural"),
 ):
     """Upload a media file and create a dubbing project."""

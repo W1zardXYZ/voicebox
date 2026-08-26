@@ -21,7 +21,7 @@ from ..database import Capture as DBCapture
 from ..models import CaptureResponse, RefinementFlagsModel
 from ..utils.audio import load_audio
 from .refinement import RefinementFlags, refine_transcript
-from .transcribe import get_parakeet_model, get_whisper_model
+from .transcribe import resolve_stt_backend
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +120,13 @@ async def create_capture(
                 raw_path.unlink()
                 written_files.remove(raw_path)
 
-        if stt_engine == "parakeet":
-            parakeet = get_parakeet_model()
-            transcript = await parakeet.transcribe(str(audio_path), language)
-            resolved_engine = "parakeet"
-            resolved_stt = parakeet.model_size or "v3-0.6b"
+        backend, resolved_engine = resolve_stt_backend(stt_engine)
+        if resolved_engine == "parakeet":
+            transcript = await backend.transcribe(str(audio_path), language)
+            resolved_stt = backend.model_size or "v3-0.6b"
         else:
-            whisper = get_whisper_model()
-            resolved_stt = stt_model or whisper.model_size
-            transcript = await whisper.transcribe(str(audio_path), language, resolved_stt)
-            resolved_engine = "whisper"
+            resolved_stt = stt_model or backend.model_size
+            transcript = await backend.transcribe(str(audio_path), language, resolved_stt)
 
         row = DBCapture(
             id=capture_id,
@@ -231,16 +228,13 @@ async def retranscribe_capture(
     if not resolved or not resolved.exists():
         raise FileNotFoundError(f"Audio for capture {capture_id} is missing")
 
-    if stt_engine == "parakeet":
-        parakeet = get_parakeet_model()
-        transcript = await parakeet.transcribe(str(resolved), language)
-        resolved_stt = parakeet.model_size or "v3-0.6b"
-        resolved_engine = "parakeet"
+    backend, resolved_engine = resolve_stt_backend(stt_engine)
+    if resolved_engine == "parakeet":
+        transcript = await backend.transcribe(str(resolved), language)
+        resolved_stt = backend.model_size or "v3-0.6b"
     else:
-        whisper = get_whisper_model()
-        resolved_stt = stt_model or whisper.model_size
-        transcript = await whisper.transcribe(str(resolved), language, resolved_stt)
-        resolved_engine = "whisper"
+        resolved_stt = stt_model or backend.model_size
+        transcript = await backend.transcribe(str(resolved), language, resolved_stt)
 
     row.transcript_raw = transcript
     row.stt_model = resolved_stt

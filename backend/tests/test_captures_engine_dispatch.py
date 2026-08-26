@@ -62,8 +62,13 @@ def env(monkeypatch):
 
     whisper = _FakeStt("whisper said", "turbo")
     parakeet = _FakeStt("parakeet said", "v3-0.6b")
-    monkeypatch.setattr("backend.services.captures.get_whisper_model", lambda: whisper)
-    monkeypatch.setattr("backend.services.captures.get_parakeet_model", lambda: parakeet)
+
+    def _resolve(engine):
+        if engine == "parakeet":
+            return parakeet, "parakeet"
+        return whisper, "whisper"
+
+    monkeypatch.setattr("backend.services.captures.resolve_stt_backend", _resolve)
 
     e = _Env(Session(), tmp, whisper, parakeet)
     try:
