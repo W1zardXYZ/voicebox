@@ -22,8 +22,17 @@ router = APIRouter()
 UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 
 ALLOWED_MEDIA_EXTS = {
-    ".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".webm",
-    ".opus", ".mp4", ".mov", ".mkv",
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".ogg",
+    ".flac",
+    ".aac",
+    ".webm",
+    ".opus",
+    ".mp4",
+    ".mov",
+    ".mkv",
 }
 
 
@@ -100,9 +109,7 @@ async def get_dubbing_project(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     db = SessionLocal()
     try:
-        seg_count = (
-            db.query(dubbing.DubbingSegment).filter_by(project_id=project_id).count()
-        )
+        seg_count = db.query(dubbing.DubbingSegment).filter_by(project_id=project_id).count()
         resp = dubbing.project_dict(project)
         resp["segment_count"] = seg_count
         resp["speakers"] = dubbing.speakers_dict(db, project_id)
@@ -166,3 +173,32 @@ async def get_dubbed_audio(project_id: str):
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Dubbed audio not ready")
     return FileResponse(str(path), media_type="audio/wav")
+
+
+@router.post("/dubbing/projects/{project_id}/export")
+async def export_dubbed_video(project_id: str):
+    """Mux dubbed audio back onto the original video and return the path."""
+    project = dubbing.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.status != "ready":
+        raise HTTPException(status_code=400, detail="Project must be ready before export")
+    try:
+        out = await dubbing.export_video(project_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if out is None:
+        raise HTTPException(status_code=400, detail="Dubbed audio not available")
+    return {"success": True, "video_path": str(out.relative_to(config.get_data_dir()))}
+
+
+@router.get("/dubbing/video/{project_id}")
+async def get_dubbed_video(project_id: str):
+    """Serve the exported dubbed video (MP4)."""
+    project = dubbing.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    path = config.resolve_storage_path(project.dubbed_video_path)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail="Dubbed video not ready")
+    return FileResponse(str(path), media_type="video/mp4")
