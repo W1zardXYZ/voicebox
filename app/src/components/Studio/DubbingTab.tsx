@@ -179,6 +179,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
   const [translationModel, setTranslationModel] = useState('1.7B');
   const [voiceSource, setVoiceSource] = useState<'auto' | 'default' | 'existing'>('auto');
   const [voiceProfileId, setVoiceProfileId] = useState<string>('');
+  const [prosodyPreserve, setProsodyPreserve] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -200,6 +201,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
         translation_model: string;
         voice_source?: string;
         default_voice_profile_id?: string;
+        prosody_preserve?: boolean;
       } = {
         name: name || file.name,
         source_language: source,
@@ -207,6 +209,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
         stt_engine: stt,
         translation_model: translationModel,
         voice_source: voiceSource,
+        prosody_preserve: prosodyPreserve,
       };
       if (voiceSource === 'existing' && voiceProfileId) {
         opts.default_voice_profile_id = voiceProfileId;
@@ -269,6 +272,15 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
             <option value="1.7B">Qwen3 1.7B (balanced)</option>
             <option value="4B">Qwen3 4B (best quality)</option>
           </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={prosodyPreserve}
+            onChange={(e) => setProsodyPreserve(e.target.checked)}
+          />
+          Preserve delivery (pauses, stress & pacing)
         </label>
         <label className="text-sm font-medium">
           Voice

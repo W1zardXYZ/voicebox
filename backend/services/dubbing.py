@@ -11,6 +11,7 @@ translation backend, the TTS generation service, and SQLAlchemy persistence.
 """
 
 import asyncio
+import io
 import logging
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session
 from .. import config
 from ..database import session as db_session
 from ..database.models import DubbingProject, DubbingSegment, DubbingSpeaker, VoiceProfile
-from . import diarization as diarization_service, segmentation, translation as translation_service
+from . import diarization as diarization_service, prosody, segmentation, translation as translation_service
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def create_project(
     translation_model: str | None = None,
     voice_source: str | None = None,
     default_voice_profile_id: str | None = None,
+    prosody_preserve: bool = True,
     duration: float = 0.0,
 ) -> DubbingProject:
     db = _session()
@@ -70,6 +72,7 @@ def create_project(
             translation_model=translation_model,
             voice_source=voice_source,
             default_voice_profile_id=default_voice_profile_id,
+            prosody_preserve=prosody_preserve,
             duration=duration,
             status="draft",
         )
@@ -119,6 +122,7 @@ def project_dict(p: DubbingProject) -> dict:
         "translation_model": p.translation_model,
         "voice_source": p.voice_source,
         "default_voice_profile_id": p.default_voice_profile_id,
+        "prosody_preserve": p.prosody_preserve,
         "error": p.error,
         "dubbed_audio_path": p.dubbed_audio_path,
         "dubbed_video_path": p.dubbed_video_path,
@@ -324,6 +328,10 @@ async def run_pipeline(project_id: str) -> None:
 
         set_project_status(db, project_id, "processing", "translate")
 
+        if project.prosody_preserve:
+            set_project_status(db, project_id, "processing", "prosody")
+            _measure_prosody(db, project_id, master_wav)
+
         # 6. TRANSLATE (length-fit) + 7. SYNTHESIZE per segment.
         await _translate_and_synthesize(db, project_id, storage)
 
@@ -401,6 +409,59 @@ async def _persist_project_artifacts(
     db.commit()
 
 
+def _measure_prosody(db: Session, project_id: str, master_wav: Path) -> None:
+    """Measure per-segment prosody from the source audio (Tier 0 + Tier 1).
+
+    Loads the master 16k WAV once and, for each segment, splits its source
+    text into words spaced evenly over the segment window so we can measure
+    per-word energy (stress) with real audio — even when the STT backend
+    produced no word timestamps (Whisper fallback). Stores ``source_wps``,
+    ``pace_multiplier`` and ``prosody_annotation`` (director's-script
+    ``instruct``) on each segment.
+    """
+    import soundfile as sf
+
+    if not master_wav.exists():
+        logger.warning("Prosody skipped: %s missing", master_wav)
+        return
+    audio, sr = sf.read(str(master_wav), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+
+    rows = (
+        db.query(DubbingSegment)
+        .filter_by(project_id=project_id)
+        .order_by(DubbingSegment.sequence_index.asc())
+        .all()
+    )
+
+    for seg in rows:
+        duration_s = max(0.01, seg.duration)
+        words_text = seg.source_text.split()
+        n_words = max(1, len(words_text))
+
+        # Evenly-spaced word boundaries within the segment window.
+        start = float(seg.start_time)
+        per_word = max(0.02, duration_s / n_words)
+        aligned = []
+        for i, w in enumerate(words_text):
+            ws = start + i * per_word
+            we = ws + per_word
+            aligned.append({"word": w, "start": ws, "end": we})
+
+        stats = prosody.word_stats(audio, sr, aligned)
+        pace = prosody.compute_pace(aligned, duration_s)
+        annot = prosody.annotate(seg.source_text, stats)
+        rate_hint = prosody.rate_hint(pace)
+        if rate_hint:
+            annot["instruct"] = (f"{rate_hint.capitalize()}; " + annot["instruct"])
+
+        seg.source_wps = n_words / duration_s
+        seg.pace_multiplier = pace
+        seg.prosody_annotation = annot["instruct"]
+        db.commit()
+
+
 async def _translate_and_synthesize(db: Session, project_id: str, storage: Path) -> None:
     """Translate + TTS each dirty segment, writing per-segment WAVs."""
     project = db.query(DubbingProject).filter_by(id=project_id).first()
@@ -440,6 +501,28 @@ async def _translate_and_synthesize(db: Session, project_id: str, storage: Path)
             db.commit()
 
 
+def _split_into_pieces(text: str, min_piece_chars: int = 24) -> list[str]:
+    """Split a translated segment into punctuation-bounded pieces for per-piece synth.
+
+    Aims to keep pieces long enough to be natural while preserving the source's
+    phrase breaks (periods, question/exclamation marks, commas, semicolons).
+    Returns ``[text]`` when there is no usable break, so single-render stays the
+    common path for short lines.
+    """
+    t = (text or "").strip()
+    if not t:
+        return [""]
+    tokens = [s.strip() for s in t.replace(";", ".").split(".") if s.strip()]
+    # Merge tiny pieces so we don't over-fragment mid-thought.
+    merged: list[str] = []
+    for tok in tokens:
+        if merged and len(merged[-1]) < min_piece_chars:
+            merged[-1] = f"{merged[-1]}. {tok}"
+        else:
+            merged.append(tok)
+    return merged
+
+
 async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path) -> None:
     """Generate the dubbed audio for one segment via the TTS engine.
 
@@ -473,19 +556,66 @@ async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path)
 
     engine, model_size = _resolve_profile_voice(voice_profile_id)
 
-    # For preset voices the engine needs its preset_voice_id wired through;
-    # generate_audio_sync derives the voice from the profile itself, so we
-    # only pass engine + size (preset metadata is read off the profile row).
-    wav_bytes = await generation.generate_audio_sync(
-        profile_id=voice_profile_id,
-        text=seg.translated_text,
-        language="en",  # engine-language hint; engines auto-detect target lang
-        engine=engine,
-        model_size=model_size,
-        normalize=True,
-    )
+    # Prosody director's-script instruct (measured from the source) steers
+    # stress/pacing; only meaningful for instruct-capable engines (Qwen
+    # CustomVoice). Passed through regardless — the backend ignores it if the
+    # engine doesn't take one.
+    instruct = seg.prosody_annotation or None
 
-    Path(out_path).write_bytes(wav_bytes)
+    # Per-piece synthesis (decided): split the translated text into
+    # punctuation-bounded pieces and render each separately so pauses are laid
+    # down deterministically (independent of whether the TTS honours markers),
+    # then concatenate with small gaps. Falls back to a single render if the
+    # text has no break points.
+    pieces = _split_into_pieces(seg.translated_text)
+    if len(pieces) == 1:
+        wav_bytes = await generation.generate_audio_sync(
+            profile_id=voice_profile_id,
+            text=seg.translated_text,
+            language="en",  # engine-language hint; engines auto-detect target lang
+            engine=engine,
+            model_size=model_size,
+            instruct=instruct,
+            normalize=True,
+        )
+        Path(out_path).write_bytes(wav_bytes)
+        return
+
+    import soundfile as sf
+
+    rendered: list[np.ndarray] = []
+    gap = np.zeros(int(0.18 * SAMPLE_RATE), dtype=np.float32)  # cross-piece pause
+    for piece in pieces:
+        wav = await generation.generate_audio_sync(
+            profile_id=voice_profile_id,
+            text=piece,
+            language="en",
+            engine=engine,
+            model_size=model_size,
+            instruct=instruct,
+            normalize=True,
+        )
+        audio, sr = sf.read(io.BytesIO(wav), dtype="float32")
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        if len(audio) == 0:
+            continue
+        if sr != SAMPLE_RATE:
+            n = int(len(audio) * SAMPLE_RATE / sr)
+            audio = np.interp(
+                np.linspace(0, 1, n),
+                np.linspace(0, 1, len(audio)),
+                audio,
+            ).astype(np.float32)
+        if rendered:
+            rendered.append(gap)
+        rendered.append(audio)
+
+    if not rendered:
+        raise RuntimeError("No audio produced for segment")
+
+    master = np.concatenate(rendered) if len(rendered) > 1 else rendered[0]
+    sf.write(out_path, master, SAMPLE_RATE)
 
 
 def _resolve_profile_voice(profile_id: str) -> tuple[str, str]:

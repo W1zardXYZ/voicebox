@@ -44,6 +44,7 @@ def run_migrations(engine) -> None:
     _migrate_capture_settings(engine, inspector, tables)
     _migrate_captures(engine, inspector, tables)
     _migrate_dubbing_projects(engine, inspector, tables)
+    _migrate_dubbing_segments(engine, inspector, tables)
     _migrate_mcp_bindings(engine, inspector, tables)
     _normalize_storage_paths(engine, tables)
 
@@ -293,6 +294,34 @@ def _migrate_dubbing_projects(engine, inspector, tables: set[str]) -> None:
             "dubbing_projects",
             "default_voice_profile_id VARCHAR",
             "default_voice_profile_id",
+        )
+    if "prosody_preserve" not in columns:
+        _add_column(
+            engine,
+            "dubbing_projects",
+            "prosody_preserve BOOLEAN NOT NULL DEFAULT 1",
+            "prosody_preserve",
+        )
+
+
+def _migrate_dubbing_segments(engine, inspector, tables: set[str]) -> None:
+    """Backfill ``dubbing_segments`` prosody columns."""
+    if "dubbing_segments" not in tables:
+        return
+    columns = _get_columns(inspector, "dubbing_segments")
+    if "prosody_annotation" not in columns:
+        _add_column(
+            engine,
+            "dubbing_segments",
+            "prosody_annotation TEXT",
+            "prosody_annotation",
+        )
+    if "source_wps" not in columns:
+        _add_column(
+            engine,
+            "dubbing_segments",
+            "source_wps FLOAT",
+            "source_wps",
         )
 
 

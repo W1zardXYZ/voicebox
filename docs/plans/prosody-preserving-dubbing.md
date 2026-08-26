@@ -1,6 +1,8 @@
 # Design — Prosody-Preserving Dubbing
 
-**Status:** Draft for review (no code yet)
+**Status:** ✅ **Implemented (m07, 2026-08-26)** — Tier 0 + Tier 1 built; see
+`docs/history/SESSION-2026-08-26-m07.md`. Open: measure Qwen CustomVoice's
+`instruct` marker fidelity on hardware.
 **DECIDED by user (2026-08-26):**
 - `prosody_preserve` **default = ON** (off-switch kept for comparison/debug).
 - **Synthesize per prosody piece** (per-piece synthesis + `crossfade_ms`) rather

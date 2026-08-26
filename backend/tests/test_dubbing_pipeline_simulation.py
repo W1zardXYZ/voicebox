@@ -264,3 +264,39 @@ async def test_pipeline_with_auto_clone_sets_default_voice(sim, monkeypatch):
     finally:
         db.close()
     assert calls.get("cloned"), "auto-clone should be invoked when voice_source=auto"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_prosody_preserve_measures_annotations(sim):
+    """With prosody_preserve on (default), segments get pace + instruct set."""
+    from backend.services import dubbing
+
+    data_dir = sim["tmp"] / "data"
+    src = _make_source_audio(data_dir)
+    proj = dubbing.create_project(
+        name="prosody-sim",
+        source_language="en",
+        target_language="de",
+        source_path=str(src),
+        stt_engine="whisper",
+        prosody_preserve=True,
+    )
+    await dubbing.run_pipeline(proj.id)
+
+    from backend.database.models import DubbingProject, DubbingSegment
+
+    db = sim["Session"]()
+    try:
+        p = db.query(DubbingProject).filter_by(id=proj.id).first()
+        assert p.status == "ready"
+        segs = (
+            db.query(DubbingSegment)
+            .filter_by(project_id=proj.id)
+            .all()
+        )
+        assert segs, "project should have segments"
+        any_annotated = any(s.prosody_annotation for s in segs)
+        assert any_annotated, "prosody should annotate at least one segment"
+        assert any(s.source_wps is not None for s in segs), "source_wps should be measured"
+    finally:
+        db.close()

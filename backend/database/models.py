@@ -340,6 +340,7 @@ class DubbingProject(Base):
     translation_model = Column(String, nullable=True)  # Qwen3 LLM size: 0.6B | 1.7B | 4B
     voice_source = Column(String, nullable=True, default=None)  # "auto" | "default" | profile id
     default_voice_profile_id = Column(String, nullable=True)
+    prosody_preserve = Column(Boolean, nullable=False, default=True)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -379,6 +380,8 @@ class DubbingSegment(Base):
     pace_multiplier = Column(Float, default=1.0)
     alignment = Column(String, default="start")  # start | center | end
     auto_stretch = Column(Boolean, default=False)
+    prosody_annotation = Column(Text, nullable=True)  # director's-script instruct
+    source_wps = Column(Float, nullable=True)  # measured source speaking rate
     is_locked = Column(Boolean, default=False)
     source_audio_path = Column(String, nullable=True)
     synthesized_audio_path = Column(String, nullable=True)
