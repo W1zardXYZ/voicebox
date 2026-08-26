@@ -196,6 +196,7 @@ class CaptureSettings(Base):
 
     id = Column(Integer, primary_key=True, default=1)
     stt_model = Column(String, nullable=False, default="turbo")
+    stt_engine = Column(String, nullable=False, default="whisper")  # whisper | parakeet
     language = Column(String, nullable=False, default="auto")
     auto_refine = Column(Boolean, nullable=False, default=True)
     llm_model = Column(String, nullable=False, default="0.6B")
@@ -294,6 +295,7 @@ class Capture(Base):
     transcript_raw = Column(Text, nullable=False, default="")
     transcript_refined = Column(Text, nullable=True)
     stt_model = Column(String, nullable=True)
+    stt_engine = Column(String, nullable=True, default="whisper")  # whisper | parakeet
     llm_model = Column(String, nullable=True)
     refinement_flags = Column(Text, nullable=True)  # JSON blob
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -42,6 +42,7 @@ def run_migrations(engine) -> None:
     _migrate_effect_presets(engine, inspector, tables)
     _migrate_generation_versions(engine, inspector, tables)
     _migrate_capture_settings(engine, inspector, tables)
+    _migrate_captures(engine, inspector, tables)
     _migrate_mcp_bindings(engine, inspector, tables)
     _normalize_storage_paths(engine, tables)
 
@@ -243,6 +244,27 @@ def _migrate_capture_settings(engine, inspector, tables: set[str]) -> None:
             "hotkey_enabled BOOLEAN NOT NULL DEFAULT 0",
             "hotkey_enabled",
         )
+    if "stt_engine" not in columns:
+        _add_column(
+            engine,
+            "capture_settings",
+            "stt_engine VARCHAR NOT NULL DEFAULT 'whisper'",
+            "stt_engine",
+        )
+
+
+def _migrate_captures(engine, inspector, tables: set[str]) -> None:
+    """Backfill the new ``captures.stt_engine`` column (default whisper)."""
+    if "captures" not in tables:
+        return
+    columns = _get_columns(inspector, "captures")
+    if "stt_engine" not in columns:
+        _add_column(
+            engine,
+            "captures",
+            "stt_engine VARCHAR DEFAULT 'whisper'",
+            "stt_engine",
+        )
 
 
 def _migrate_mcp_bindings(engine, inspector, tables: set[str]) -> None:
@@ -296,7 +318,7 @@ def _normalize_storage_paths(engine, tables: set[str]) -> None:
     """Normalize stored file paths to be relative to the configured data dir."""
     from pathlib import Path
 
-    from ..config import get_data_dir, to_storage_path, resolve_storage_path
+    from ..config import get_data_dir, resolve_storage_path, to_storage_path
 
     data_dir = get_data_dir()
 

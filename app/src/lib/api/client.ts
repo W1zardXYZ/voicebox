@@ -399,6 +399,7 @@ class ApiClient {
     file: File,
     language?: LanguageCode,
     model?: WhisperModelSize,
+    engine?: 'whisper' | 'parakeet',
   ): Promise<TranscriptionResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -407,6 +408,9 @@ class ApiClient {
     }
     if (model) {
       formData.append('model', model);
+    }
+    if (engine) {
+      formData.append('engine', engine);
     }
 
     const url = `${this.getBaseUrl()}/transcribe`;

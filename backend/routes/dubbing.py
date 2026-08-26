@@ -12,8 +12,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import config, models
+from ..database import session as db_session
 from ..database.models import DubbingProject
-from ..database.session import SessionLocal
 from ..services import dubbing
 from ..services.task_queue import create_background_task
 
@@ -79,7 +79,7 @@ async def create_dubbing_project(
     except Exception:
         duration = 0.0
 
-    db = SessionLocal()
+    db = db_session.SessionLocal()
     try:
         p = db.query(DubbingProject).filter_by(id=project.id).first()
         p.source_path = str(dest)
@@ -107,7 +107,7 @@ async def get_dubbing_project(project_id: str):
     project = dubbing.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    db = SessionLocal()
+    db = db_session.SessionLocal()
     try:
         seg_count = db.query(dubbing.DubbingSegment).filter_by(project_id=project_id).count()
         resp = dubbing.project_dict(project)

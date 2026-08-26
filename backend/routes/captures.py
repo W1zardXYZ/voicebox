@@ -10,8 +10,7 @@ from .. import config, models
 from ..backends import get_llm_model_configs, get_stt_model_configs
 from ..backends.base import is_model_cached
 from ..database import Capture as DBCapture, get_db
-from ..services import captures as captures_service
-from ..services import settings as settings_service
+from ..services import captures as captures_service, settings as settings_service
 from ..services.refinement import RefinementFlags
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,7 @@ async def create_capture_endpoint(
     source: str = Form("file"),
     language: str | None = Form(None),
     stt_model: str | None = Form(None),
+    stt_engine: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload audio, run STT, persist the capture."""
@@ -40,6 +40,7 @@ async def create_capture_endpoint(
 
     saved = settings_service.get_capture_settings(db)
     resolved_stt = stt_model or saved.stt_model
+    resolved_engine = stt_engine or saved.stt_engine or "whisper"
     if language is None:
         resolved_language = None if saved.language == "auto" else saved.language
     else:
@@ -52,6 +53,7 @@ async def create_capture_endpoint(
             source=source,
             language=resolved_language,
             stt_model=resolved_stt,
+            stt_engine=resolved_engine,
             db=db,
         )
     except ValueError as e:
@@ -208,6 +210,7 @@ async def retranscribe_capture_endpoint(
 ):
     saved = settings_service.get_capture_settings(db)
     resolved_stt = request.model or saved.stt_model
+    resolved_engine = request.engine or saved.stt_engine or "whisper"
     if request.language is None:
         resolved_language = None if saved.language == "auto" else saved.language
     else:
@@ -218,6 +221,7 @@ async def retranscribe_capture_endpoint(
             capture_id=capture_id,
             stt_model=resolved_stt,
             language=resolved_language,
+            stt_engine=resolved_engine,
             db=db,
         )
     except FileNotFoundError as e:

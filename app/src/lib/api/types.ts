@@ -168,6 +168,7 @@ export interface CaptureResponse {
   transcript_raw: string;
   transcript_refined?: string | null;
   stt_model?: string | null;
+  stt_engine?: 'whisper' | 'parakeet' | null;
   llm_model?: string | null;
   refinement_flags?: RefinementFlags | null;
   created_at: string;
@@ -197,11 +198,14 @@ export interface CaptureRefineRequest {
 
 export interface CaptureRetranscribeRequest {
   model?: WhisperModelSize;
+  engine?: 'whisper' | 'parakeet';
   language?: LanguageCode;
 }
 
 export interface CaptureSettings {
   stt_model: WhisperModelSize;
+  /** STT engine: whisper (default) or parakeet (V3, NeMo). */
+  stt_engine: 'whisper' | 'parakeet';
   language: string;
   auto_refine: boolean;
   llm_model: Qwen3ModelSize;

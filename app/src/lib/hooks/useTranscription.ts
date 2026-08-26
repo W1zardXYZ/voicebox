@@ -9,10 +9,12 @@ export function useTranscription() {
       file,
       language,
       model,
+      engine,
     }: {
       file: File;
       language?: LanguageCode;
       model?: WhisperModelSize;
-    }) => apiClient.transcribeAudio(file, language, model),
+      engine?: 'whisper' | 'parakeet';
+    }) => apiClient.transcribeAudio(file, language, model, engine),
   });
 }

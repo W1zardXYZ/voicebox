@@ -12,7 +12,6 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Optional
 
 import soundfile as sf
 from sqlalchemy.orm import Session
@@ -22,7 +21,7 @@ from ..database import Capture as DBCapture
 from ..models import CaptureResponse, RefinementFlagsModel
 from ..utils.audio import load_audio
 from .refinement import RefinementFlags, refine_transcript
-from .transcribe import get_whisper_model
+from .transcribe import get_parakeet_model, get_whisper_model
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ WHISPER_NATIVE_FORMATS = (".wav", ".mp3", ".flac", ".ogg")
 
 
 def _to_response(row: DBCapture) -> CaptureResponse:
-    flags_model: Optional[RefinementFlagsModel] = None
+    flags_model: RefinementFlagsModel | None = None
     if row.refinement_flags:
         try:
             flags_model = RefinementFlagsModel(**json.loads(row.refinement_flags))
@@ -51,6 +50,7 @@ def _to_response(row: DBCapture) -> CaptureResponse:
         transcript_raw=row.transcript_raw or "",
         transcript_refined=row.transcript_refined,
         stt_model=row.stt_model,
+        stt_engine=row.stt_engine,
         llm_model=row.llm_model,
         refinement_flags=flags_model,
         created_at=row.created_at,
@@ -62,13 +62,16 @@ async def create_capture(
     audio_bytes: bytes,
     filename: str,
     source: str,
-    language: Optional[str],
-    stt_model: Optional[str],
+    language: str | None,
+    stt_model: str | None,
+    stt_engine: str | None = "whisper",
     db: Session,
 ) -> CaptureResponse:
     """Persist raw audio, run STT, store the row."""
     if source not in VALID_SOURCES:
         raise ValueError(f"Invalid source '{source}'. Must be one of {sorted(VALID_SOURCES)}")
+    if stt_engine not in ("whisper", "parakeet"):
+        stt_engine = "whisper"
 
     capture_id = str(uuid.uuid4())
     suffix = Path(filename).suffix.lower() or ".wav"
@@ -117,9 +120,16 @@ async def create_capture(
                 raw_path.unlink()
                 written_files.remove(raw_path)
 
-        whisper = get_whisper_model()
-        resolved_stt = stt_model or whisper.model_size
-        transcript = await whisper.transcribe(str(audio_path), language, resolved_stt)
+        if stt_engine == "parakeet":
+            parakeet = get_parakeet_model()
+            transcript = await parakeet.transcribe(str(audio_path), language)
+            resolved_engine = "parakeet"
+            resolved_stt = parakeet.model_size or "v3-0.6b"
+        else:
+            whisper = get_whisper_model()
+            resolved_stt = stt_model or whisper.model_size
+            transcript = await whisper.transcribe(str(audio_path), language, resolved_stt)
+            resolved_engine = "whisper"
 
         row = DBCapture(
             id=capture_id,
@@ -129,6 +139,7 @@ async def create_capture(
             duration_ms=duration_ms,
             transcript_raw=transcript,
             stt_model=resolved_stt,
+            stt_engine=resolved_engine,
         )
         db.add(row)
         db.commit()
@@ -159,7 +170,7 @@ def list_captures(db: Session, limit: int = 50, offset: int = 0) -> tuple[list[C
     return [_to_response(r) for r in rows], total
 
 
-def get_capture(capture_id: str, db: Session) -> Optional[CaptureResponse]:
+def get_capture(capture_id: str, db: Session) -> CaptureResponse | None:
     row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
     return _to_response(row) if row else None
 
@@ -184,9 +195,9 @@ def delete_capture(capture_id: str, db: Session) -> bool:
 async def refine_capture(
     capture_id: str,
     flags: RefinementFlags,
-    model_size: Optional[str],
+    model_size: str | None,
     db: Session,
-) -> Optional[CaptureResponse]:
+) -> CaptureResponse | None:
     row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
     if not row:
         return None
@@ -207,10 +218,11 @@ async def refine_capture(
 
 async def retranscribe_capture(
     capture_id: str,
-    stt_model: Optional[str],
-    language: Optional[str],
+    stt_model: str | None,
+    language: str | None,
     db: Session,
-) -> Optional[CaptureResponse]:
+    stt_engine: str | None = "whisper",
+) -> CaptureResponse | None:
     row = db.query(DBCapture).filter(DBCapture.id == capture_id).first()
     if not row:
         return None
@@ -219,12 +231,20 @@ async def retranscribe_capture(
     if not resolved or not resolved.exists():
         raise FileNotFoundError(f"Audio for capture {capture_id} is missing")
 
-    whisper = get_whisper_model()
-    resolved_stt = stt_model or whisper.model_size
-    transcript = await whisper.transcribe(str(resolved), language, resolved_stt)
+    if stt_engine == "parakeet":
+        parakeet = get_parakeet_model()
+        transcript = await parakeet.transcribe(str(resolved), language)
+        resolved_stt = parakeet.model_size or "v3-0.6b"
+        resolved_engine = "parakeet"
+    else:
+        whisper = get_whisper_model()
+        resolved_stt = stt_model or whisper.model_size
+        transcript = await whisper.transcribe(str(resolved), language, resolved_stt)
+        resolved_engine = "whisper"
 
     row.transcript_raw = transcript
     row.stt_model = resolved_stt
+    row.stt_engine = resolved_engine
     if language:
         row.language = language
     # Refined text is stale after a fresh STT pass — force a re-refine.
