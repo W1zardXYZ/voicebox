@@ -405,6 +405,21 @@ For the **full engineering status, open-issue triage, and prioritized work queue
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup and contribution guidelines.
 
+### Reusing an existing model cache (test machines)
+
+If you already have Voicebox (or any HF-cached models) installed — e.g. the app's
+models at `~/.cache/huggingface/hub` — you can point this fork at that cache and
+skip re-downloading ~20 GB of TTS/STT/LLM weights:
+
+```bash
+export VOICEBOX_MODELS_DIR=/Users/w1zard/.cache/huggingface/hub   # same cache as the app
+just dev-web          # backend + web UI; only Parakeet + diarization are new downloads
+```
+
+Full walkthrough (including which models are reused and what's still new):
+**[docs/MODEL_REUSE_SETUP.md](docs/MODEL_REUSE_SETUP.md)**. Spec:
+[docs/plans/model-reuse.md](docs/plans/model-reuse.md).
+
 ### Quick Start
 
 ```bash
