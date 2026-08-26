@@ -54,6 +54,8 @@ def create_project(
     stt_engine: str = "whisper",
     translation_style: str = "Natural",
     translation_model: str | None = None,
+    voice_source: str | None = None,
+    default_voice_profile_id: str | None = None,
     duration: float = 0.0,
 ) -> DubbingProject:
     db = _session()
@@ -66,6 +68,8 @@ def create_project(
             stt_engine=stt_engine,
             translation_style=translation_style,
             translation_model=translation_model,
+            voice_source=voice_source,
+            default_voice_profile_id=default_voice_profile_id,
             duration=duration,
             status="draft",
         )
@@ -113,6 +117,8 @@ def project_dict(p: DubbingProject) -> dict:
         "translation_style": p.translation_style,
         "stt_engine": p.stt_engine,
         "translation_model": p.translation_model,
+        "voice_source": p.voice_source,
+        "default_voice_profile_id": p.default_voice_profile_id,
         "error": p.error,
         "dubbed_audio_path": p.dubbed_audio_path,
         "dubbed_video_path": p.dubbed_video_path,
@@ -305,6 +311,17 @@ async def run_pipeline(project_id: str) -> None:
         # 5. PERSIST default speakers + segments.
         await _persist_project_artifacts(db, project_id, project, segments, turns)
 
+        # 5b. Auto-clone a voice profile from the source when requested, so
+        # synthesis has a real voice even if the user hasn't made one yet.
+        if project.voice_source == "auto" and not project.default_voice_profile_id:
+            try:
+                set_project_status(db, project_id, "processing", "clone_voice")
+                await auto_clone_voice_profile(project_id, storage, db=db)
+                logger.info("Auto-cloned source voice for project %s", project_id)
+            except Exception as e:
+                logger.warning("Auto-clone voice failed for %s: %s", project_id, e)
+                # Fall back to the default profile selection at synth time.
+
         set_project_status(db, project_id, "processing", "translate")
 
         # 6. TRANSLATE (length-fit) + 7. SYNTHESIZE per segment.
@@ -436,7 +453,7 @@ async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path)
     if not seg.translated_text:
         raise RuntimeError("No translated text for segment")
 
-    # Resolve the voice: speaker mapping → profile → default profile id.
+    # Resolve the voice: speaker mapping → project default → first available.
     voice_profile_id = None
     db = _session()
     try:
@@ -444,6 +461,10 @@ async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path)
             spk = db.query(DubbingSpeaker).filter_by(id=seg.speaker_id).first()
             if spk and spk.voice_profile_id:
                 voice_profile_id = spk.voice_profile_id
+        if not voice_profile_id:
+            project = db.query(DubbingProject).filter_by(id=seg.project_id).first()
+            if project and project.default_voice_profile_id:
+                voice_profile_id = project.default_voice_profile_id
     finally:
         db.close()
 
@@ -515,6 +536,85 @@ async def _find_default_profile() -> str:
         "No voice profile exists. Create a voice profile first (Voices tab) "
         "or assign one per speaker in the Dubbing Studio."
     )
+
+
+async def auto_clone_voice_profile(
+    project_id: str,
+    storage: Path,
+    db: Session | None = None,
+) -> str:
+    """Clone a Voicebox voice profile from the source's best transcribed segment.
+
+    Pick the longest transcribed segment in the project, cut that window out of
+    the master WAV, and feed it (plus its transcript) to the existing profile
+    clone service so dubbing synthesis has a real voice to use — automating the
+    "voice creator" flow instead of requiring the user to make a profile first.
+
+    Returns the new profile id (set on ``project.default_voice_profile_id`` and
+    assigned to that speaker).
+    """
+    from ..models import VoiceProfileCreate
+    from ..services import profiles
+
+    own = db is None
+    db = db or _session()
+    try:
+        project = db.query(DubbingProject).filter_by(id=project_id).first()
+        if project is None:
+            raise RuntimeError(f"Project {project_id} not found")
+        # Longest clean transcribed segment = best clone sample.
+        seg = (
+            db.query(DubbingSegment)
+            .filter_by(project_id=project_id)
+            .order_by((DubbingSegment.end_time - DubbingSegment.start_time).desc())
+            .first()
+        )
+        if seg is None or not seg.source_text:
+            raise RuntimeError("No transcribed segment available to clone a voice from.")
+
+        master = storage / "master_16k.wav"
+        if not master.exists():
+            raise RuntimeError("master_16k.wav missing; cannot clone voice.")
+
+        import soundfile as sf
+
+        audio, sr = sf.read(str(master), dtype="float32")
+        start = int(seg.start_time * sr)
+        end = max(start, int(seg.end_time * sr))
+        sample = audio[start:end]
+
+        # Persist the cut sample next to the project.
+        sample_path = storage / "voice_clone_sample.wav"
+        sf.write(str(sample_path), sample, sr)
+
+        profile = await profiles.create_profile(
+            VoiceProfileCreate(
+                name=f"{project.name} · source speaker",
+                description="Auto-cloned from the dubbing source media.",
+                language=project.source_language,
+                voice_type="cloned",
+                default_engine="qwen",
+            ),
+            db,
+        )
+        await profiles.add_profile_sample(
+            profile.id,
+            str(sample_path),
+            reference_text=seg.source_text,
+            db=db,
+        )
+
+        project.default_voice_profile_id = profile.id
+        # Assign this voice to the segment's speaker so all their lines use it.
+        if seg.speaker_id:
+            spk = db.query(DubbingSpeaker).filter_by(id=seg.speaker_id).first()
+            if spk is not None:
+                spk.voice_profile_id = profile.id
+        db.commit()
+        return profile.id
+    finally:
+        if own:
+            db.close()
 
 
 async def _assemble_track(db: Session, project_id: str, storage: Path) -> Path:

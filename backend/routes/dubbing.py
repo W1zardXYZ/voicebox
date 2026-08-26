@@ -45,6 +45,8 @@ async def create_dubbing_project(
     stt_engine: str = Form("whisper"),
     translation_style: str = Form("Natural"),
     translation_model: str | None = Form(None),
+    voice_source: str | None = Form(None),
+    default_voice_profile_id: str | None = Form(None),
 ):
     """Upload a media file and create a dubbing project."""
     if stt_engine not in ("whisper", "parakeet"):
@@ -64,6 +66,8 @@ async def create_dubbing_project(
         stt_engine=stt_engine,
         translation_style=translation_style,
         translation_model=translation_model,
+        voice_source=voice_source,
+        default_voice_profile_id=default_voice_profile_id,
     )
 
     # Persist the upload into the project dir, get its duration.

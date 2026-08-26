@@ -49,43 +49,32 @@ reaches `ready` and the empty segment is skipped.
 
 ---
 
-## 2. [BACKLOG] Translation model quality — let the user pick before running
+## 2. [DONE] Translation model quality — let the user pick before running
 
-**Reported:** the dubbing translation uses the **Qwen3 0.6B LLM** by default and
-produced "quite a few bad text translations" — outputting way too much or way
-too little.
+**Status:** ✅ Implemented (commit `f3bf1b9`). A "Translation model" dropdown on
+the DubbingTab (0.6B / 1.7B / 4B, default 1.7B) selects the Qwen3 LLM size for
+that project; `DubbingProject.translation_model` + pipeline threading added.
 
-**Facts from code:**
-- `backend/backends/translation_backend.py` → `translate_and_fit` calls
-  `get_llm_backend()` (Qwen3 LLM) and passes **no `model_size`** — so it uses
-  the engine default (`qwen3-0.6b`).
-- `backend/backends/__init__.py` defines `qwen3-0.6b`, `qwen3-1.7b`,
-  `qwen3-4b` (MLX 4-bit quantizations on Apple Silicon; upstream instruct
-  weights on PyTorch). The 4B is the quality option:
-  - `mlx-community/Qwen3-4B-4bit` (2.5 GB) on MLX
-  - `Qwen/Qwen3-4B` (8 GB) on PyTorch
+**Remaining: research an even better translation model (not done).**
+Web search was offline, so this is from working model knowledge (re-verify when
+search is back):
+- **Qwen3 4B is already a large jump over 0.6B** for dialogue literalness;
+  it's the practical ceiling that fits comfortably on 8 GB in MLX 4-bit (2.5 GB).
+- **Qwen3 8B** (MLX `mlx-community/Qwen3-8B-4bit`, ~4.7 GB) is a meaningful
+  step up in translation quality and still *might* fit 8 GB RAM combined with
+  TTS+STT, but is tight and slower. **Only if** the user accepts slower,
+  heavier runs.
+- **Gemma 3 4B / Llama 3.2 3B** — good multilingual, but Qwen3 4B is already
+  in-tree and comparable/better.
+- **Cloud opt-in** (OpenRouter/Turkey provider LLM for translation only) is the
+  only clean way to get "ElevenLabs-class" translation on an 8 GB box without
+  weight pressure — worth exposing as an optional provider, per
+  `_PREAMBLE`/`get_translation_backend(provider=...)` support that already
+  exists in the code.
 
-**Requested:**
-1. **Allow selecting the translation model before running the pipeline** — a
-   UI control (alongside the STT engine + voice selection) that sets `model_size`
-   on the translation backend for that project run.
-2. **Feature request — an even better translation model:** ideally a stronger
-   model than Qwen3 4B (user said "ideally we can add an even better one").
-   Research candidates and propose (e.g. a better Qwen3 family member that
-   fits 8 GB, or a cloud translation provider opt-in). `backend/plans/
-   prosody-preserving-dubbing.md` can host the recommendation.
-
-**Implementation sketch:**
-- Thread `llm_model_size` (or a general `translation_model`) through
-  `create_dubbing_project` / `DubbingProject` and into
-  `_translate_and_synthesize` → `translation_service.translate_and_fit(
-  model_size=...)`.
-- `LLMTranslationBackend.translate_and_fit(...)` already has the plumbing
-  surface; add `model_size` param and pass to `backend.generate(model_size=)`.
-- Frontend `DubbingTab.tsx`: add a "Translation model" dropdown (0.6B / 1.7B /
-  4B / cloud-optin) next to the STT dropdown.
-
-**Priority:** High (direct QA complaint).
+**Recommendation (when scheduling):** keep Qwen3 4B as the on-device default,
+and add translation-as-cloud-provider opt-in for the quality ceiling. Do **not**
+default to 8B on this 8 GB box.
 
 ---
 

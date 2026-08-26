@@ -22,7 +22,7 @@ import soundfile as sf
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.database import models as db_models  # noqa: F401  (register tables)
+from backend.database import models as db_models
 from backend.database.models import Base
 
 SR = 16000
@@ -217,3 +217,50 @@ async def test_pipeline_survives_empty_synthesized_wav(sim, monkeypatch):
         p.status == "ready"
     ), f"pipeline should not crash on empty synth wav; got status={p.status}"
     assert p.dubbed_audio_path, "dubbed track should still be produced"
+
+
+
+
+
+@pytest.mark.asyncio
+async def test_pipeline_with_auto_clone_sets_default_voice(sim, monkeypatch):
+    """voice_source='auto' triggers an auto-clone and sets default_voice_profile_id."""
+    from backend.services import dubbing
+
+    calls = {}
+
+    async def _fake_auto_clone(project_id, storage, db=None):
+        # Simulate the clone outcome (real clone needs torch/prbot model deps).
+        project = db.query(db_models.DubbingProject).filter_by(id=project_id).first()
+        project.default_voice_profile_id = "auto-clone-profile-id"
+        calls["cloned"] = True
+        db.commit()
+        return "auto-clone-profile-id"
+
+    monkeypatch.setattr(
+        "backend.services.dubbing.auto_clone_voice_profile", _fake_auto_clone
+    )
+
+    data_dir = sim["tmp"] / "data"
+    src = _make_source_audio(data_dir)
+    proj = dubbing.create_project(
+        name="clone-sim",
+        source_language="en",
+        target_language="de",
+        source_path=str(src),
+        stt_engine="whisper",
+        voice_source="auto",
+    )
+    await dubbing.run_pipeline(proj.id)
+
+    from backend.database.models import DubbingProject
+
+    db = sim["Session"]()
+    try:
+        p = db.query(DubbingProject).filter_by(id=proj.id).first()
+        assert p is not None
+        assert p.status == "ready"
+        assert p.default_voice_profile_id == "auto-clone-profile-id"
+    finally:
+        db.close()
+    assert calls.get("cloned"), "auto-clone should be invoked when voice_source=auto"

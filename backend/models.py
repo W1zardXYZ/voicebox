@@ -923,6 +923,8 @@ class DubbingProjectCreate(BaseModel):
     stt_engine: str = "whisper"
     translation_style: str = "Natural"
     translation_model: str | None = None
+    voice_source: str | None = None
+    default_voice_profile_id: str | None = None
 
 
 class DubbingSpeakerResponse(BaseModel):
@@ -948,6 +950,8 @@ class DubbingProjectResponse(BaseModel):
     translation_style: str = "Natural"
     stt_engine: str = "whisper"
     translation_model: str | None = None
+    voice_source: str | None = None
+    default_voice_profile_id: str | None = None
     error: str | None = None
     dubbed_audio_path: str | None = None
     dubbed_video_path: str | None = None

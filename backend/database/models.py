@@ -338,6 +338,8 @@ class DubbingProject(Base):
     translation_style = Column(String, default="Natural")
     stt_engine = Column(String, default="parakeet")  # whisper | parakeet
     translation_model = Column(String, nullable=True)  # Qwen3 LLM size: 0.6B | 1.7B | 4B
+    voice_source = Column(String, nullable=True, default=None)  # "auto" | "default" | profile id
+    default_voice_profile_id = Column(String, nullable=True)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

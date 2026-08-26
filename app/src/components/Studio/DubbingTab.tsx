@@ -177,21 +177,41 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
   const [target, setTarget] = useState('de');
   const [stt, setStt] = useState('whisper');
   const [translationModel, setTranslationModel] = useState('1.7B');
+  const [voiceSource, setVoiceSource] = useState<'auto' | 'default' | 'existing'>('auto');
+  const [voiceProfileId, setVoiceProfileId] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const profilesQuery = useQuery({
+    queryKey: ['profiles'],
+    queryFn: () => apiClient.listProfiles(),
+  });
 
   const submit = async () => {
     if (!file) return;
     setBusy(true);
     setError(null);
     try {
-      await apiClient.createDubbingProject(file, {
+      const opts: {
+        name: string;
+        source_language: string;
+        target_language: string;
+        stt_engine: string;
+        translation_model: string;
+        voice_source?: string;
+        default_voice_profile_id?: string;
+      } = {
         name: name || file.name,
         source_language: source,
         target_language: target,
         stt_engine: stt,
         translation_model: translationModel,
-      });
+        voice_source: voiceSource,
+      };
+      if (voiceSource === 'existing' && voiceProfileId) {
+        opts.default_voice_profile_id = voiceProfileId;
+      }
+      await apiClient.createDubbingProject(file, opts);
       setFile(null);
       setName('');
       onCreate();
@@ -250,6 +270,35 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
             <option value="4B">Qwen3 4B (best quality)</option>
           </select>
         </label>
+        <label className="text-sm font-medium">
+          Voice
+          <select
+            className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            value={voiceSource}
+            onChange={(e) => setVoiceSource(e.target.value as 'auto' | 'default' | 'existing')}
+          >
+            <option value="auto">Auto-clone from source</option>
+            <option value="default">Use first available profile</option>
+            <option value="existing">Pick an existing profile</option>
+          </select>
+        </label>
+        {voiceSource === 'existing' && (
+          <label className="text-sm font-medium">
+            Profile
+            <select
+              className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={voiceProfileId}
+              onChange={(e) => setVoiceProfileId(e.target.value)}
+            >
+              <option value="">Select a voice…</option>
+              {(profilesQuery.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="mt-3 flex items-center gap-3">

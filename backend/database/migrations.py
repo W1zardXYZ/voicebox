@@ -269,7 +269,7 @@ def _migrate_captures(engine, inspector, tables: set[str]) -> None:
 
 
 def _migrate_dubbing_projects(engine, inspector, tables: set[str]) -> None:
-    """Add the ``dubbing_projects.translation_model`` column (Qwen3 LLM size)."""
+    """Add ``dubbing_projects`` voice / translation columns for the dubbing UI."""
     if "dubbing_projects" not in tables:
         return
     columns = _get_columns(inspector, "dubbing_projects")
@@ -279,6 +279,20 @@ def _migrate_dubbing_projects(engine, inspector, tables: set[str]) -> None:
             "dubbing_projects",
             "translation_model VARCHAR DEFAULT '0.6B'",
             "translation_model",
+        )
+    if "voice_source" not in columns:
+        _add_column(
+            engine,
+            "dubbing_projects",
+            "voice_source VARCHAR",
+            "voice_source",
+        )
+    if "default_voice_profile_id" not in columns:
+        _add_column(
+            engine,
+            "dubbing_projects",
+            "default_voice_profile_id VARCHAR",
+            "default_voice_profile_id",
         )
 
 
