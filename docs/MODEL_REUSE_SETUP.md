@@ -52,6 +52,16 @@ brew install ffmpeg
 just dev-web
 ```
 
+> **No `just` installed?** `just dev-web` just starts two processes. Install `just`
+> (`brew install just`), or run the two servers directly in two terminals:
+> ```bash
+> # terminal 1 — backend (uvicorn on :17493)
+> .venv/bin/uvicorn backend.main:app --reload --port 17493
+> # terminal 2 — web UI (Vite)
+> cd web && bun run dev
+> # then open http://localhost:5173
+> ```
+
 > **No `VOICEBOX_MODELS_DIR` needed?** `huggingface_hub` already defaults to
 > `~/.cache/huggingface/hub`. If that's where the app keeps its models (it is,
 > at `/Users/w1zard/.cache/huggingface/hub`), the export is redundant — but
