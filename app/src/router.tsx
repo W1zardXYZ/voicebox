@@ -10,6 +10,7 @@ import { CapturesTab } from '@/components/CapturesTab/CapturesTab';
 import { EffectsTab } from '@/components/EffectsTab/EffectsTab';
 import { MainEditor } from '@/components/MainEditor/MainEditor';
 import { ModelsTab } from '@/components/ModelsTab/ModelsTab';
+import { DubbingTab } from '@/components/Studio/DubbingTab';
 import { AboutPage } from '@/components/ServerTab/AboutPage';
 import { CapturesPage } from '@/components/ServerTab/CapturesPage';
 import { ChangelogPage } from '@/components/ServerTab/ChangelogPage';
@@ -134,6 +135,13 @@ const modelsRoute = createRoute({
   component: ModelsTab,
 });
 
+// Dubbing Studio route
+const studioRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio',
+  component: DubbingTab,
+});
+
 // Settings layout route (parent for sub-tabs)
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -207,6 +215,7 @@ const routeTree = rootRoute.addChildren([
   voicesRoute,
   effectsRoute,
   modelsRoute,
+  studioRoute,
   settingsRoute.addChildren([
     settingsGeneralRoute,
     settingsGenerationRoute,

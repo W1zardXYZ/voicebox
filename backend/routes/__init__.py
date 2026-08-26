@@ -12,6 +12,7 @@ def register_routers(app: FastAPI) -> None:
     from .cuda import router as cuda_router
     from .diarization import router as diarization_router
     from .dictionary import router as dictionary_router
+    from .dubbing import router as dubbing_router
     from .effects import router as effects_router
     from .events import router as events_router
     from .generations import router as generations_router
@@ -52,3 +53,4 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(diarization_router)
     app.include_router(dictionary_router)
     app.include_router(translation_router)
+    app.include_router(dubbing_router)
