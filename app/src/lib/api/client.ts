@@ -955,6 +955,161 @@ class ApiClient {
   async disconnectCloud(): Promise<CloudStatus> {
     return this.request<CloudStatus>('/cloud/disconnect', { method: 'POST' });
   }
+
+  // ── Dubbing Studio ──────────────────────────────────────────────────
+  async createDubbingProject(
+    file: File,
+    opts: {
+      name?: string;
+      source_language: string;
+      target_language: string;
+      stt_engine?: string;
+      translation_style?: string;
+    },
+  ): Promise<DubbingProject> {
+    const url = `${this.getBaseUrl()}/dubbing/projects`;
+    const formData = new FormData();
+    formData.append('file', file);
+    if (opts.name) formData.append('name', opts.name);
+    formData.append('source_language', opts.source_language);
+    formData.append('target_language', opts.target_language);
+    formData.append('stt_engine', opts.stt_engine ?? 'parakeet');
+    formData.append('translation_style', opts.translation_style ?? 'Natural');
+    const response = await fetch(url, { method: 'POST', body: formData });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(formatErrorDetail(error.detail, `HTTP error! status: ${response.status}`));
+    }
+    return response.json();
+  }
+
+  async listDubbingProjects(): Promise<DubbingProject[]> {
+    return this.request<DubbingProject[]>('/dubbing/projects');
+  }
+
+  async getDubbingProject(projectId: string): Promise<DubbingProject> {
+    return this.request<DubbingProject>(`/dubbing/projects/${projectId}`);
+  }
+
+  async runDubbingPipeline(projectId: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(
+      `/dubbing/projects/${projectId}/run`,
+      { method: 'POST' },
+    );
+  }
+
+  async listDubbingSegments(projectId: string): Promise<DubbingSegment[]> {
+    return this.request<DubbingSegment[]>(`/dubbing/projects/${projectId}/segments`);
+  }
+
+  async updateDubbingSegment(
+    segmentId: string,
+    update: DubbingSegmentUpdate,
+  ): Promise<DubbingSegment> {
+    return this.request<DubbingSegment>(`/dubbing/segments/${segmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
+    });
+  }
+
+  async resynthesizeDubbingSegment(segmentId: string): Promise<DubbingSegment> {
+    return this.request<DubbingSegment>(`/dubbing/segments/${segmentId}/resynthesize`, {
+      method: 'POST',
+    });
+  }
+
+  dubbedAudioUrl(projectId: string): string {
+    return `${this.getBaseUrl()}/dubbing/audio/${projectId}`;
+  }
+
+  // ── Pronunciation dictionary ────────────────────────────────────────
+  async listDictionary(language?: string): Promise<DictionaryEntry[]> {
+    const q = language ? `?language=${encodeURIComponent(language)}` : '';
+    return this.request<DictionaryEntry[]>(`/dictionary${q}`);
+  }
+
+  async upsertDictionaryEntry(data: {
+    word: string;
+    phonemes: string;
+    language?: string;
+    notes?: string;
+  }): Promise<DictionaryEntry> {
+    return this.request<DictionaryEntry>('/dictionary', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteDictionaryEntry(idOrWord: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>(`/dictionary/${encodeURIComponent(idOrWord)}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export const apiClient = new ApiClient();
+
+// ── Dubbing types ─────────────────────────────────────────────────────
+
+export interface DubbingSpeaker {
+  id: string;
+  label: string;
+  voice_profile_id?: string | null;
+  preset_engine?: string | null;
+  preset_voice_id?: string | null;
+}
+
+export interface DubbingProject {
+  id: string;
+  name: string;
+  status: string;
+  stage?: string | null;
+  source_language: string;
+  target_language: string;
+  duration: number;
+  translation_style: string;
+  stt_engine: string;
+  error?: string | null;
+  dubbed_audio_path?: string | null;
+  segment_count: number;
+  speakers: DubbingSpeaker[];
+  created_at?: string | null;
+}
+
+export interface DubbingSegment {
+  id: string;
+  project_id: string;
+  speaker_id?: string | null;
+  sequence_index: number;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  source_text: string;
+  translated_text?: string | null;
+  target_char_min: number;
+  target_char_max: number;
+  pace_multiplier: number;
+  alignment: string;
+  auto_stretch: boolean;
+  is_locked: boolean;
+  synthesized_audio_path?: string | null;
+  is_dirty: boolean;
+}
+
+export interface DubbingSegmentUpdate {
+  translated_text?: string;
+  alignment?: 'start' | 'center' | 'end';
+  pace_multiplier?: number;
+  auto_stretch?: boolean;
+  is_locked?: boolean;
+  speaker_id?: string | null;
+}
+
+export interface DictionaryEntry {
+  id: string;
+  word: string;
+  phonemes: string;
+  language: string;
+  notes?: string | null;
+  updated_at?: string | null;
+}

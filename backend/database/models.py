@@ -319,3 +319,67 @@ class PronunciationDictionary(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DubbingProject(Base):
+    """A dubbing project: one source media file being translated to a target
+    language, with per-speaker voice assignment."""
+
+    __tablename__ = "dubbing_projects"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    status = Column(String, default="draft")  # draft | processing | ready | failed
+    stage = Column(String, nullable=True)      # extract | transcribe | diarize | translate | synthesize | assemble
+    source_language = Column(String, nullable=False, default="en")
+    target_language = Column(String, nullable=False, default="en")
+    source_path = Column(String, nullable=True)       # original media file
+    dubbed_audio_path = Column(String, nullable=True) # assembled output
+    duration = Column(Float, default=0.0)
+    translation_style = Column(String, default="Natural")
+    stt_engine = Column(String, default="parakeet")   # whisper | parakeet
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DubbingSpeaker(Base):
+    """A speaker detected by diarization, mapped to a Voicebox voice profile
+    (or left to the default) for synthesis."""
+
+    __tablename__ = "dubbing_speakers"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("dubbing_projects.id"), nullable=False, index=True)
+    label = Column(String, nullable=False)             # e.g. "SPEAKER_00"
+    voice_profile_id = Column(String, nullable=True)   # FK to profiles.id (optional)
+    preset_engine = Column(String, nullable=True)      # e.g. "kokoro" if using a preset
+    preset_voice_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DubbingSegment(Base):
+    """A single translated+dubbed segment on the timeline."""
+
+    __tablename__ = "dubbing_segments"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("dubbing_projects.id"), nullable=False, index=True)
+    speaker_id = Column(String, ForeignKey("dubbing_speakers.id"), nullable=True)
+    sequence_index = Column(Integer, nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+    duration = Column(Float, nullable=False)
+    source_text = Column(Text, nullable=False, default="")
+    translated_text = Column(Text, nullable=True)
+    target_char_min = Column(Integer, default=0)
+    target_char_max = Column(Integer, default=0)
+    pace_multiplier = Column(Float, default=1.0)
+    alignment = Column(String, default="start")     # start | center | end
+    auto_stretch = Column(Boolean, default=False)
+    is_locked = Column(Boolean, default=False)
+    source_audio_path = Column(String, nullable=True)
+    synthesized_audio_path = Column(String, nullable=True)
+    is_dirty = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
