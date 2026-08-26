@@ -1022,6 +1022,17 @@ class ApiClient {
     return `${this.getBaseUrl()}/dubbing/audio/${projectId}`;
   }
 
+  dubbedVideoUrl(projectId: string): string {
+    return `${this.getBaseUrl()}/dubbing/video/${projectId}`;
+  }
+
+  async exportDubbedVideo(projectId: string): Promise<{ success: boolean; video_path: string }> {
+    return this.request<{ success: boolean; video_path: string }>(
+      `/dubbing/projects/${projectId}/export`,
+      { method: 'POST' },
+    );
+  }
+
   // ── Pronunciation dictionary ────────────────────────────────────────
   async listDictionary(language?: string): Promise<DictionaryEntry[]> {
     const q = language ? `?language=${encodeURIComponent(language)}` : '';
@@ -1071,6 +1082,7 @@ export interface DubbingProject {
   stt_engine: string;
   error?: string | null;
   dubbed_audio_path?: string | null;
+  dubbed_video_path?: string | null;
   segment_count: number;
   speakers: DubbingSpeaker[];
   created_at?: string | null;

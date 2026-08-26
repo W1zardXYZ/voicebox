@@ -31,6 +31,7 @@ SAMPLE_RATE = 44100
 # Project / segment persistence
 # ---------------------------------------------------------------------------
 
+
 def _storage_dir(project_id: str) -> Path:
     path = config.get_data_dir() / "dubbing" / project_id
     path.mkdir(parents=True, exist_ok=True)
@@ -81,9 +82,7 @@ def list_projects() -> list[dict]:
         rows = db.query(DubbingProject).order_by(DubbingProject.created_at.desc()).all()
         out = []
         for p in rows:
-            seg_count = (
-                db.query(DubbingSegment).filter_by(project_id=p.id).count()
-            )
+            seg_count = db.query(DubbingSegment).filter_by(project_id=p.id).count()
             d = project_dict(p)
             d["segment_count"] = seg_count
             d["speakers"] = speakers_dict(db, p.id)
@@ -106,6 +105,7 @@ def project_dict(p: DubbingProject) -> dict:
         "stt_engine": p.stt_engine,
         "error": p.error,
         "dubbed_audio_path": p.dubbed_audio_path,
+        "dubbed_video_path": p.dubbed_video_path,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 
@@ -236,6 +236,7 @@ async def resynthesize_segment(segment_id: str) -> dict | None:
 # Pipeline
 # ---------------------------------------------------------------------------
 
+
 async def run_pipeline(project_id: str) -> None:
     """Run the full dubbing pipeline for a project (background task)."""
     db = SessionLocal()
@@ -270,9 +271,7 @@ async def run_pipeline(project_id: str) -> None:
         else:
             backend = transcribe.get_whisper_model()
             await backend.load_model_async("turbo")
-            text = await backend.transcribe(
-                str(master_wav), language=project.source_language, model_size="turbo"
-            )
+            text = await backend.transcribe(str(master_wav), language=project.source_language, model_size="turbo")
             raw = [{"text": text, "start": 0.0, "end": project.duration or 1.0, "words": []}]
 
         set_project_status(db, project_id, "processing", "diarize")
@@ -291,9 +290,7 @@ async def run_pipeline(project_id: str) -> None:
 
         # 4. SEGMENT — pause-aware grouping + char budgets.
         set_project_status(db, project_id, "processing", "segment")
-        segments = segmentation.build_pause_aware_segments(
-            merged, target_lang=project.target_language
-        )
+        segments = segmentation.build_pause_aware_segments(merged, target_lang=project.target_language)
 
         # 5. PERSIST default speakers + segments.
         await _persist_project_artifacts(db, project_id, project, segments, turns)
@@ -382,12 +379,7 @@ async def _translate_and_synthesize(db: Session, project_id: str, storage: Path)
     project = db.query(DubbingProject).filter_by(id=project_id).first()
     if project is None:
         return
-    rows = (
-        db.query(DubbingSegment)
-        .filter_by(project_id=project_id)
-        .order_by(DubbingSegment.sequence_index.asc())
-        .all()
-    )
+    rows = db.query(DubbingSegment).filter_by(project_id=project_id).order_by(DubbingSegment.sequence_index.asc()).all()
     seg_dir = storage / "segments"
     seg_dir.mkdir(parents=True, exist_ok=True)
 
@@ -471,13 +463,17 @@ async def _find_default_profile() -> str:
 
 
 async def _assemble_track(db: Session, project_id: str, storage: Path) -> Path:
-    """Place each segment's WAV on the master canvas (start|center|end)."""
-    rows = (
-        db.query(DubbingSegment)
-        .filter_by(project_id=project_id)
-        .order_by(DubbingSegment.sequence_index.asc())
-        .all()
-    )
+    """Place each segment's WAV on the master canvas (start|center|end).
+
+    Alignment + time-stretch polish (m03):
+      - ``alignment`` decides where the synthesized audio sits inside the
+        original segment window: ``start`` / ``center`` / ``end``.
+      - ``pace_multiplier`` scales the *target* duration (faster/slower read).
+      - ``auto_stretch`` phase-vocoders the audio (pitch-preserving) to hit
+        the target window exactly; without it the audio keeps its natural
+        length and only placement shifts.
+    """
+    rows = db.query(DubbingSegment).filter_by(project_id=project_id).order_by(DubbingSegment.sequence_index.asc()).all()
     project = db.query(DubbingProject).filter_by(id=project_id).first()
     total_samples = max(1, int(SAMPLE_RATE * (project.duration or 0.0)))
     canvas = np.zeros(total_samples, dtype=np.float32)
@@ -493,8 +489,20 @@ async def _assemble_track(db: Session, project_id: str, storage: Path) -> Path:
         audio, sr = sf.read(str(seg_path), dtype="float32")
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
+
+        window_start_s = seg.start_time
+        window_end_s = seg.end_time
+        window_dur = max(0.1, window_end_s - window_start_s)
+
+        # Apply pace multiplier → effective target duration.
+        target_dur = window_dur * (seg.pace_multiplier or 1.0)
+
+        # Auto-stretch (pitch-preserving) when requested and needed.
+        audio_dur = len(audio) / sr
+        if seg.auto_stretch and target_dur > 0.05 and abs(audio_dur - target_dur) / target_dur > 0.03:
+            audio = _time_stretch(audio, sr, target_dur)
+
         if sr != SAMPLE_RATE:
-            # Basic resample to the canvas rate.
             n = int(len(audio) * SAMPLE_RATE / sr)
             audio = np.interp(
                 np.linspace(0, 1, n),
@@ -502,13 +510,125 @@ async def _assemble_track(db: Session, project_id: str, storage: Path) -> Path:
                 audio,
             ).astype(np.float32)
 
-        start_sample = int(seg.start_time * SAMPLE_RATE)
         seg_samples = len(audio)
+
+        # Alignment: where inside the window the audio starts.
+        start_sample = _alignment_start_sample(seg.alignment, window_start_s, window_end_s, seg_samples, total_samples)
         end_sample = min(total_samples, seg_samples + start_sample)
-        canvas[start_sample:end_sample] += audio[: end_sample - start_sample]
+        if end_sample > start_sample:
+            canvas[start_sample:end_sample] += audio[: end_sample - start_sample]
 
     out_path = storage / "dubbed_master.wav"
     import soundfile as sf
 
     sf.write(str(out_path), canvas, SAMPLE_RATE)
     return out_path
+
+
+def _alignment_start_sample(
+    alignment: str,
+    window_start_s: float,
+    window_end_s: float,
+    seg_samples: int,
+    total_samples: int,
+) -> int:
+    """Start sample for ``start`` / ``center`` / ``end`` placement, clamped to canvas."""
+    sr = SAMPLE_RATE
+    if alignment == "end":
+        start = int((window_end_s * sr) - seg_samples)
+    elif alignment == "center":
+        start = int(((window_start_s + window_end_s) / 2) * sr - seg_samples / 2)
+    else:  # start
+        start = int(window_start_s * sr)
+    return max(0, min(start, max(0, total_samples - 1)))
+
+
+def _time_stretch(audio: np.ndarray, sr: int, target_dur: float) -> np.ndarray:
+    """Pitch-preserving time stretch via librosa phase vocoder.
+
+    ``rate = original_duration / target_duration``; >1 speeds up, <1 slows
+    down. Falls back to linear resample if librosa is unavailable.
+    """
+    import numpy as _np
+
+    if target_dur <= 0.05:
+        return audio
+    orig_dur = len(audio) / sr
+    rate = orig_dur / target_dur
+    if abs(rate - 1.0) < 0.01:
+        return audio
+    try:
+        from librosa.effects import time_stretch as _librosa_stretch
+
+        stretched = _librosa_stretch(audio, rate=float(rate))
+        return _np.asarray(stretched, dtype=_np.float32)
+    except Exception:
+        # Linear fallback — resamples, changes pitch slightly, better than nothing.
+        n = max(1, int(len(audio) / max(rate, 0.05)))
+        return _np.interp(
+            _np.linspace(0, 1, n),
+            _np.linspace(0, 1, len(audio)),
+            audio,
+        ).astype(_np.float32)
+
+
+async def export_video(project_id: str) -> Path | None:
+    """Mux the dubbed master audio back onto the original video (ffmpeg).
+
+    Returns the path to the exported MP4, or None if the project isn't ready
+    or has no dubbed audio.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    db = SessionLocal()
+    try:
+        project = db.query(DubbingProject).filter_by(id=project_id).first()
+        if project is None:
+            return None
+        if not project.dubbed_audio_path:
+            return None
+        dubbed_path = config.resolve_storage_path(project.dubbed_audio_path)
+        if dubbed_path is None or not dubbed_path.exists():
+            return None
+
+        # Original media (video preferred; fall back to source audio).
+        source = Path(project.source_path) if project.source_path else None
+        if source is None or not source.exists():
+            raise RuntimeError("No original media file available for export")
+
+        if _shutil.which("ffmpeg") is None:
+            raise RuntimeError(
+                "ffmpeg is required for video export and was not found. "
+                "Install it (e.g. `brew install ffmpeg`) and try again."
+            )
+
+        storage = _storage_dir(project_id)
+        out_mp4 = storage / "dubbed_video.mp4"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(source),
+            "-i",
+            str(dubbed_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(out_mp4),
+        ]
+        result = _subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg export failed: {result.stderr[-500:]}")
+
+        project.dubbed_video_path = str(out_mp4.relative_to(config.get_data_dir()))
+        db.commit()
+        return out_mp4
+    finally:
+        db.close()

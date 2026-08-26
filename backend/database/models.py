@@ -34,10 +34,10 @@ class VoiceProfile(Base):
 
     # Voice type system — added v0.3.x
     voice_type = Column(String, default="cloned")  # "cloned" | "preset" | "designed"
-    preset_engine = Column(String, nullable=True)   # e.g. "kokoro" — only for preset
+    preset_engine = Column(String, nullable=True)  # e.g. "kokoro" — only for preset
     preset_voice_id = Column(String, nullable=True)  # e.g. "am_adam" — only for preset
-    design_prompt = Column(Text, nullable=True)      # text description — only for designed
-    default_engine = Column(String, nullable=True)   # auto-selected engine, locked for preset
+    design_prompt = Column(Text, nullable=True)  # text description — only for designed
+    default_engine = Column(String, nullable=True)  # auto-selected engine, locked for preset
     # Free-form character prompt used by the compose button and the
     # personality-rewrite path on /generate. Describes *what* this voice
     # says and how, orthogonal to how it sounds (handled by the preset /
@@ -212,12 +212,8 @@ class CaptureSettings(Base):
     hotkey_enabled = Column(Boolean, nullable=False, default=False)
     # Lists of keytap key names (e.g. "MetaRight", "ControlRight"). Right-hand
     # modifiers by default so they don't collide with left-hand shortcuts.
-    chord_push_to_talk_keys = Column(
-        JSON, nullable=False, default=default_push_to_talk_chord
-    )
-    chord_toggle_to_talk_keys = Column(
-        JSON, nullable=False, default=default_toggle_to_talk_chord
-    )
+    chord_push_to_talk_keys = Column(JSON, nullable=False, default=default_push_to_talk_chord)
+    chord_toggle_to_talk_keys = Column(JSON, nullable=False, default=default_toggle_to_talk_chord)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -330,14 +326,15 @@ class DubbingProject(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
     status = Column(String, default="draft")  # draft | processing | ready | failed
-    stage = Column(String, nullable=True)      # extract | transcribe | diarize | translate | synthesize | assemble
+    stage = Column(String, nullable=True)  # extract | transcribe | diarize | translate | synthesize | assemble
     source_language = Column(String, nullable=False, default="en")
     target_language = Column(String, nullable=False, default="en")
-    source_path = Column(String, nullable=True)       # original media file
-    dubbed_audio_path = Column(String, nullable=True) # assembled output
+    source_path = Column(String, nullable=True)  # original media file
+    dubbed_audio_path = Column(String, nullable=True)  # assembled output
+    dubbed_video_path = Column(String, nullable=True)  # muxed MP4 (m03 export)
     duration = Column(Float, default=0.0)
     translation_style = Column(String, default="Natural")
-    stt_engine = Column(String, default="parakeet")   # whisper | parakeet
+    stt_engine = Column(String, default="parakeet")  # whisper | parakeet
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -351,9 +348,9 @@ class DubbingSpeaker(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id = Column(String, ForeignKey("dubbing_projects.id"), nullable=False, index=True)
-    label = Column(String, nullable=False)             # e.g. "SPEAKER_00"
-    voice_profile_id = Column(String, nullable=True)   # FK to profiles.id (optional)
-    preset_engine = Column(String, nullable=True)      # e.g. "kokoro" if using a preset
+    label = Column(String, nullable=False)  # e.g. "SPEAKER_00"
+    voice_profile_id = Column(String, nullable=True)  # FK to profiles.id (optional)
+    preset_engine = Column(String, nullable=True)  # e.g. "kokoro" if using a preset
     preset_voice_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -375,7 +372,7 @@ class DubbingSegment(Base):
     target_char_min = Column(Integer, default=0)
     target_char_max = Column(Integer, default=0)
     pace_multiplier = Column(Float, default=1.0)
-    alignment = Column(String, default="start")     # start | center | end
+    alignment = Column(String, default="start")  # start | center | end
     auto_stretch = Column(Boolean, default=False)
     is_locked = Column(Boolean, default=False)
     source_audio_path = Column(String, nullable=True)

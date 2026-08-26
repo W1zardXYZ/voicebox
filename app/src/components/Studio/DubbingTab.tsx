@@ -336,6 +336,7 @@ function ProjectPanel({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const projectQuery = useQuery({
     queryKey: ['dubbing-project', projectId],
@@ -363,6 +364,19 @@ function ProjectPanel({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const exportVideo = async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      await apiClient.exportDubbedVideo(projectId);
+      await queryClient.invalidateQueries({ queryKey: ['dubbing-project', projectId] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -396,6 +410,22 @@ function ProjectPanel({
       {project?.status === 'ready' && project.dubbed_audio_path && (
         /* biome-ignore lint/a11y/useMediaCaption: assembled dubbing master, no captions payload */
         <audio controls src={apiClient.dubbedAudioUrl(projectId)} className="w-full" />
+      )}
+
+      {project?.status === 'ready' && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={exportVideo}
+            disabled={exporting}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted/50 disabled:opacity-40"
+          >
+            {exporting ? 'Exporting…' : 'Export video'}
+          </button>
+          {project.dubbed_video_path && (
+            /* biome-ignore lint/a11y/useMediaCaption: exported dub video, no captions payload */
+            <video controls src={apiClient.dubbedVideoUrl(projectId)} className="h-40 rounded-lg" />
+          )}
+        </div>
       )}
 
       {segments.length > 0 ? (
