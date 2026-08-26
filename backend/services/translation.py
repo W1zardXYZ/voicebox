@@ -19,8 +19,13 @@ async def translate_and_fit(
     min_chars: int | None = None,
     tone: str = "natural",
     context: str | None = None,
+    model_size: str | None = None,
 ) -> str:
-    """Translate text to target_lang, fitting an optional character budget."""
+    """Translate text to target_lang, fitting an optional character budget.
+
+    ``model_size`` (e.g. ``"0.6B"`` / ``"1.7B"`` / ``"4B"``) selects the local
+    Qwen3 LLM size used for the translation; ``None`` uses the backend default.
+    """
     backend = get_translation_backend()
     return await backend.translate_and_fit(
         text=text,
@@ -30,4 +35,5 @@ async def translate_and_fit(
         min_chars=min_chars,
         tone=tone,
         context=context,
+        model_size=model_size,
     )

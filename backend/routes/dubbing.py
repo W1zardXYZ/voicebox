@@ -44,10 +44,13 @@ async def create_dubbing_project(
     target_language: str = Form("en"),
     stt_engine: str = Form("whisper"),
     translation_style: str = Form("Natural"),
+    translation_model: str | None = Form(None),
 ):
     """Upload a media file and create a dubbing project."""
     if stt_engine not in ("whisper", "parakeet"):
         raise HTTPException(status_code=400, detail="stt_engine must be 'whisper' or 'parakeet'")
+    if translation_model is not None and translation_model not in ("0.6B", "1.7B", "4B"):
+        raise HTTPException(status_code=400, detail="translation_model must be '0.6B', '1.7B', or '4B'")
 
     uploaded_ext = Path(file.filename or "").suffix.lower()
     if uploaded_ext not in ALLOWED_MEDIA_EXTS:
@@ -60,6 +63,7 @@ async def create_dubbing_project(
         source_path="",
         stt_engine=stt_engine,
         translation_style=translation_style,
+        translation_model=translation_model,
     )
 
     # Persist the upload into the project dir, get its duration.

@@ -920,8 +920,9 @@ class DubbingProjectCreate(BaseModel):
     name: str
     source_language: str = "en"
     target_language: str = "en"
-    stt_engine: str = "parakeet"
+    stt_engine: str = "whisper"
     translation_style: str = "Natural"
+    translation_model: str | None = None
 
 
 class DubbingSpeakerResponse(BaseModel):
@@ -945,7 +946,8 @@ class DubbingProjectResponse(BaseModel):
     target_language: str
     duration: float = 0.0
     translation_style: str = "Natural"
-    stt_engine: str = "parakeet"
+    stt_engine: str = "whisper"
+    translation_model: str | None = None
     error: str | None = None
     dubbed_audio_path: str | None = None
     dubbed_video_path: str | None = None

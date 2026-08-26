@@ -176,6 +176,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
   const [source, setSource] = useState('en');
   const [target, setTarget] = useState('de');
   const [stt, setStt] = useState('whisper');
+  const [translationModel, setTranslationModel] = useState('1.7B');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -189,6 +190,7 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
         source_language: source,
         target_language: target,
         stt_engine: stt,
+        translation_model: translationModel,
       });
       setFile(null);
       setName('');
@@ -236,6 +238,18 @@ function CreateProjectForm({ onCreate }: { onCreate: () => void }) {
             </select>
           </label>
         </div>
+        <label className="text-sm font-medium">
+          Translation model
+          <select
+            className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            value={translationModel}
+            onChange={(e) => setTranslationModel(e.target.value)}
+          >
+            <option value="0.6B">Qwen3 0.6B (fast)</option>
+            <option value="1.7B">Qwen3 1.7B (balanced)</option>
+            <option value="4B">Qwen3 4B (best quality)</option>
+          </select>
+        </label>
       </div>
 
       <div className="mt-3 flex items-center gap-3">

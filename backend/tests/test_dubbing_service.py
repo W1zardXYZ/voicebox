@@ -162,3 +162,28 @@ def test_session_resolves_after_init():
     d1.close()
     d2.close()
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_create_project_persists_translation_model():
+    session_factory, tmp = _fresh_dubbing_session()
+    try:
+        from backend.services import dubbing
+
+        proj = dubbing.create_project(
+            name="model-demo",
+            source_language="en",
+            target_language="de",
+            source_path="",
+            translation_model="4B",
+        )
+        db = session_factory()
+        try:
+            from backend.database.models import DubbingProject
+
+            row = db.query(DubbingProject).filter_by(id=proj.id).first()
+            assert row is not None
+            assert row.translation_model == "4B"
+        finally:
+            db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

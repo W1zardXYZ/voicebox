@@ -52,8 +52,13 @@ class LLMTranslationBackend:
         min_chars: int | None = None,
         tone: str = "natural",
         context: str | None = None,
+        model_size: str | None = None,
     ) -> str:
-        """Translate ``text`` to ``target_lang`` within any char budget."""
+        """Translate ``text`` to ``target_lang`` within any char budget.
+
+        ``model_size`` (e.g. ``"0.6B"``/``"1.7B"``/``"4B"``) picks the local
+        Qwen3 LLM used; omitted uses the backend default (``0.6B``).
+        """
         budget = ""
         if min_chars or max_chars:
             budget = f" between {min_chars or 0} and {max_chars or 'unlimited'} characters"
@@ -71,5 +76,6 @@ class LLMTranslationBackend:
                 system=("You are a professional dialogue localizer for AI dubbing. Return only the translated text."),
                 max_tokens=1024,
                 temperature=self.temperature,
+                model_size=model_size,
             )
         ).strip()

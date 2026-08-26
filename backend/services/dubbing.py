@@ -53,6 +53,7 @@ def create_project(
     source_path: str,
     stt_engine: str = "whisper",
     translation_style: str = "Natural",
+    translation_model: str | None = None,
     duration: float = 0.0,
 ) -> DubbingProject:
     db = _session()
@@ -64,6 +65,7 @@ def create_project(
             source_path=source_path,
             stt_engine=stt_engine,
             translation_style=translation_style,
+            translation_model=translation_model,
             duration=duration,
             status="draft",
         )
@@ -110,6 +112,7 @@ def project_dict(p: DubbingProject) -> dict:
         "duration": p.duration,
         "translation_style": p.translation_style,
         "stt_engine": p.stt_engine,
+        "translation_model": p.translation_model,
         "error": p.error,
         "dubbed_audio_path": p.dubbed_audio_path,
         "dubbed_video_path": p.dubbed_video_path,
@@ -402,6 +405,7 @@ async def _translate_and_synthesize(db: Session, project_id: str, storage: Path)
                 max_chars=seg.target_char_max,
                 min_chars=seg.target_char_min,
                 tone=project.translation_style or "Natural",
+                model_size=project.translation_model,
             )
             seg.is_dirty = True
 

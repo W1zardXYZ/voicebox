@@ -969,6 +969,7 @@ class ApiClient {
       target_language: string;
       stt_engine?: string;
       translation_style?: string;
+      translation_model?: string;
     },
   ): Promise<DubbingProject> {
     const url = `${this.getBaseUrl()}/dubbing/projects`;
@@ -977,8 +978,9 @@ class ApiClient {
     if (opts.name) formData.append('name', opts.name);
     formData.append('source_language', opts.source_language);
     formData.append('target_language', opts.target_language);
-    formData.append('stt_engine', opts.stt_engine ?? 'parakeet');
+    formData.append('stt_engine', opts.stt_engine ?? 'whisper');
     formData.append('translation_style', opts.translation_style ?? 'Natural');
+    if (opts.translation_model) formData.append('translation_model', opts.translation_model);
     const response = await fetch(url, { method: 'POST', body: formData });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: response.statusText }));
@@ -1084,6 +1086,7 @@ export interface DubbingProject {
   duration: number;
   translation_style: string;
   stt_engine: string;
+  translation_model?: string | null;
   error?: string | null;
   dubbed_audio_path?: string | null;
   dubbed_video_path?: string | null;

@@ -43,6 +43,7 @@ def run_migrations(engine) -> None:
     _migrate_generation_versions(engine, inspector, tables)
     _migrate_capture_settings(engine, inspector, tables)
     _migrate_captures(engine, inspector, tables)
+    _migrate_dubbing_projects(engine, inspector, tables)
     _migrate_mcp_bindings(engine, inspector, tables)
     _normalize_storage_paths(engine, tables)
 
@@ -264,6 +265,20 @@ def _migrate_captures(engine, inspector, tables: set[str]) -> None:
             "captures",
             "stt_engine VARCHAR DEFAULT 'whisper'",
             "stt_engine",
+        )
+
+
+def _migrate_dubbing_projects(engine, inspector, tables: set[str]) -> None:
+    """Add the ``dubbing_projects.translation_model`` column (Qwen3 LLM size)."""
+    if "dubbing_projects" not in tables:
+        return
+    columns = _get_columns(inspector, "dubbing_projects")
+    if "translation_model" not in columns:
+        _add_column(
+            engine,
+            "dubbing_projects",
+            "translation_model VARCHAR DEFAULT '0.6B'",
+            "translation_model",
         )
 
 
