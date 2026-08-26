@@ -173,3 +173,47 @@ async def test_pipeline_extract_creates_master_wav(sim):
     await dubbing.run_pipeline(proj.id)
     master = dubbing._storage_dir(proj.id) / "master_16k.wav"
     assert master.exists(), "extract step should produce master_16k.wav"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_survives_empty_synthesized_wav(sim, monkeypatch):
+    """A segment whose synthesized WAV is empty must not crash assembly."""
+    from backend.services import dubbing
+
+    # Override the synth to write a header-only (zero-sample) WAV, which
+    # sf.read() decodes to a length-0 array — the exact P1 crash scenario.
+    def _write_empty_wav(out_path: Path):
+        buf = io.BytesIO()
+        sf.write(buf, np.zeros(0, dtype=np.float32), 4000, format="WAV")
+        buf.seek(0)
+        Path(out_path).write_bytes(buf.read())
+
+    async def _fake_empty_synth(seg, out_path, storage):
+        _write_empty_wav(str(out_path))
+
+    monkeypatch.setattr("backend.services.dubbing._synthesize_segment", _fake_empty_synth)
+
+    data_dir = sim["tmp"] / "data"
+    src = _make_source_audio(data_dir)
+    proj = dubbing.create_project(
+        name="sim-empty",
+        source_language="en",
+        target_language="de",
+        source_path=str(src),
+        stt_engine="whisper",
+    )
+    await dubbing.run_pipeline(proj.id)
+
+    from backend.database.models import DubbingProject
+
+    db = sim["Session"]()
+    try:
+        p = db.query(DubbingProject).filter_by(id=proj.id).first()
+    finally:
+        db.close()
+
+    assert p is not None
+    assert (
+        p.status == "ready"
+    ), f"pipeline should not crash on empty synth wav; got status={p.status}"
+    assert p.dubbed_audio_path, "dubbed track should still be produced"

@@ -541,6 +541,14 @@ async def _assemble_track(db: Session, project_id: str, storage: Path) -> Path:
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
 
+        # A synthesized WAV can come back empty (TTS returned nothing, or
+        # trim/runaway-detection zeroed it). Placing zero samples later makes
+        # the resample/stretch step call np.interp with empty sample points and
+        # crash the whole assemble. Skip it so the rest of the track survives.
+        if len(audio) == 0:
+            logger.warning("Skipping empty synthesized segment %s", seg.id)
+            continue
+
         window_start_s = seg.start_time
         window_end_s = seg.end_time
         window_dur = max(0.1, window_end_s - window_start_s)
