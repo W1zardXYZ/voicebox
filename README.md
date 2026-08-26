@@ -413,6 +413,8 @@ skip re-downloading ~20 GB of TTS/STT/LLM weights:
 
 ```bash
 export VOICEBOX_MODELS_DIR=/Users/w1zard/.cache/huggingface/hub   # same cache as the app
+python3.12 -m venv .venv && source .venv/bin/activate             # 3.12 required (<3.13)
+pip install -r backend/requirements.txt -r backend/requirements-studio.txt
 just dev-web          # backend + web UI; only Parakeet + diarization are new downloads
 ```
 

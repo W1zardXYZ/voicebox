@@ -37,8 +37,9 @@ cd voicebox
 # Voicebox's config maps this env var → HF_HUB_CACHE.
 export VOICEBOX_MODELS_DIR=/Users/w1zard/.cache/huggingface/hub
 
-# Python deps (install in a venv with Python 3.12+)
-python3 -m venv .venv && source .venv/bin/activate
+# Python deps — use Python **3.12** (Voicebox's requirements pin `kokoro>=0.9.4`,
+# which supports only `>=3.10,<3.13`; a 3.13+ venv will fail here).
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt -r backend/requirements-studio.txt
 
 # Token only needed for gated pyannote diarization repo
