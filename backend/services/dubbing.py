@@ -18,7 +18,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from .. import config
-from ..database.models import DubbingProject, DubbingSegment, DubbingSpeaker
+from ..database.models import DubbingProject, DubbingSegment, DubbingSpeaker, VoiceProfile
 from ..database.session import SessionLocal
 from . import diarization as diarization_service, segmentation, translation as translation_service
 
@@ -413,7 +413,13 @@ async def _translate_and_synthesize(db: Session, project_id: str, storage: Path)
 
 
 async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path) -> None:
-    """Generate the dubbed audio for one segment via the TTS engine."""
+    """Generate the dubbed audio for one segment via the TTS engine.
+
+    Reuse-friendly (m04): the engine is resolved from the selected voice
+    profile (default_engine / preset engine) and falls back to ``qwen`` —
+    which is the already-cached Qwen3-TTS on the machine — instead of a
+    hardcoded engine that would force a fresh download.
+    """
     from ..services import generation
 
     if not seg.translated_text:
@@ -433,16 +439,54 @@ async def _synthesize_segment(seg: DubbingSegment, out_path: str, storage: Path)
     if not voice_profile_id:
         voice_profile_id = await _find_default_profile()
 
+    engine, model_size = _resolve_profile_voice(voice_profile_id)
+
+    # For preset voices the engine needs its preset_voice_id wired through;
+    # generate_audio_sync derives the voice from the profile itself, so we
+    # only pass engine + size (preset metadata is read off the profile row).
     wav_bytes = await generation.generate_audio_sync(
         profile_id=voice_profile_id,
         text=seg.translated_text,
         language="en",  # engine-language hint; engines auto-detect target lang
-        engine="kokoro",  # lightweight default; override via speaker mapping later
-        model_size="default",
+        engine=engine,
+        model_size=model_size,
         normalize=True,
     )
 
     Path(out_path).write_bytes(wav_bytes)
+
+
+def _resolve_profile_voice(profile_id: str) -> tuple[str, str]:
+    """Return ``(engine, model_size)`` for a Voicebox profile.
+
+    Priority:
+      1. ``preset_engine`` + its size (Kokoro etc. — but those are NOT cached,
+         so this only fires if the user explicitly picked that preset).
+      2. ``default_engine`` if it's a known, loaded-able engine.
+      3. ``qwen``/``1.7B`` — the cached MLX Qwen3-TTS (no download).
+    """
+    db = SessionLocal()
+    try:
+        row = db.query(VoiceProfile).filter_by(id=profile_id).first()
+    finally:
+        db.close()
+
+    if row is None:
+        return "qwen", "1.7B"
+
+    # Preset voices: use the preset engine + size that matches the cached repo.
+    if row.voice_type == "preset" and row.preset_engine:
+        engine = row.preset_engine
+        if engine == "kokoro":
+            return "kokoro", "default"
+        return engine, "default"
+
+    # Cloned/designed with an explicit default engine.
+    if row.default_engine and row.default_engine != "qwen_custom_voice":
+        return row.default_engine, "default"
+
+    # Fall back to the cached Qwen3-TTS 1.7B (MLX bf16 repo present on the box).
+    return "qwen", "1.7B"
 
 
 async def _find_default_profile() -> str:

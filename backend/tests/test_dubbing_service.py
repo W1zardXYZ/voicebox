@@ -19,7 +19,7 @@ from backend.database.models import Base
 def _fresh_dubbing_session():
     """Build a throwaway SQLite engine + session for the dubbing module."""
     tmp = Path(tempfile.mkdtemp(prefix="dub_test_"))
-    engine = create_engine(f"sqlite:///{tmp/'test.db'}", connect_args={"check_same_thread": False})
+    engine = create_engine(f"sqlite:///{tmp / 'test.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -93,5 +93,38 @@ def test_update_segment_roundtrip():
         assert updated["alignment"] == "center"
         assert updated["is_locked"] is True
         assert updated["is_dirty"] is True  # text change marks dirty
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_resolve_profile_voice_reuses_cached_engine():
+    session_factory, tmp = _fresh_dubbing_session()
+    try:
+        from backend.database.models import VoiceProfile
+        from backend.services import dubbing
+
+        db = session_factory()
+        try:
+            # A cloned profile with no default_engine → falls back to cached qwen/1.7B.
+            cloned = VoiceProfile(name="clone-1", voice_type="cloned")
+            db.add(cloned)
+            # A preset Kokoro profile → keeps kokoro (explicit user choice).
+            preset = VoiceProfile(
+                name="preset-kokoro",
+                voice_type="preset",
+                preset_engine="kokoro",
+                preset_voice_id="af_heart",
+            )
+            db.add(preset)
+            db.commit()
+            db.refresh(cloned)
+            db.refresh(preset)
+            cloned_id, preset_id = cloned.id, preset.id
+        finally:
+            db.close()
+
+        assert dubbing._resolve_profile_voice(cloned_id) == ("qwen", "1.7B")
+        assert dubbing._resolve_profile_voice(preset_id) == ("kokoro", "default")
+        assert dubbing._resolve_profile_voice("missing-id") == ("qwen", "1.7B")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
