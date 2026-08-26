@@ -205,6 +205,7 @@ class CaptureResponse(BaseModel):
     transcript_raw: str
     transcript_refined: str | None = None
     stt_model: str | None = None
+    stt_engine: str | None = None
     llm_model: str | None = None
     refinement_flags: RefinementFlagsModel | None = None
     created_at: datetime
@@ -246,6 +247,7 @@ class CaptureRetranscribeRequest(BaseModel):
     """Request to re-run STT on a capture's audio with a different model."""
 
     model: str | None = Field(None, pattern="^(base|small|medium|large|turbo)$")
+    engine: str | None = Field(None, pattern="^(whisper|parakeet)$")
     language: str | None = Field(None, pattern="^(en|zh|ja|ko|de|fr|ru|pt|es|it)$")
 
 
@@ -253,6 +255,7 @@ class CaptureSettingsResponse(BaseModel):
     """Server-persisted defaults for the capture / refine flow."""
 
     stt_model: str = Field(default="turbo", pattern="^(base|small|medium|large|turbo)$")
+    stt_engine: str = Field(default="whisper", pattern="^(whisper|parakeet)$")
     language: str = Field(default="auto")
     auto_refine: bool = True
     llm_model: str = Field(default="0.6B", pattern="^(0\\.6B|1\\.7B|4B)$")
@@ -273,6 +276,7 @@ class CaptureSettingsUpdate(BaseModel):
     """Partial update for capture settings — every field is optional."""
 
     stt_model: str | None = Field(default=None, pattern="^(base|small|medium|large|turbo)$")
+    stt_engine: str | None = Field(default=None, pattern="^(whisper|parakeet)$")
     language: str | None = None
     auto_refine: bool | None = None
     llm_model: str | None = Field(default=None, pattern="^(0\\.6B|1\\.7B|4B)$")

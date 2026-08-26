@@ -25,6 +25,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAudioPlayer } from '@/lib/hooks/useAudioPlayer';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
 import { useAddSample, useProfile } from '@/lib/hooks/useProfiles';
+import { useCaptureSettings } from '@/lib/hooks/useSettings';
 import { useSystemAudioCapture } from '@/lib/hooks/useSystemAudioCapture';
 import { useTranscription } from '@/lib/hooks/useTranscription';
 import { usePlatform } from '@/platform/PlatformContext';
@@ -52,6 +53,8 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
   const platform = usePlatform();
   const addSample = useAddSample();
   const transcribe = useTranscription();
+  const { settings: captureSettings } = useCaptureSettings();
+  const sttEngine = captureSettings?.stt_engine ?? 'whisper';
   const { data: profile } = useProfile(profileId);
   const { toast } = useToast();
   const [mode, setMode] = useState<'upload' | 'record' | 'system'>('upload');
@@ -154,7 +157,7 @@ export function SampleUpload({ profileId, open, onOpenChange }: SampleUploadProp
 
     try {
       const language = profile?.language as 'en' | 'zh' | undefined;
-      const result = await transcribe.mutateAsync({ file, language });
+      const result = await transcribe.mutateAsync({ file, language, engine: sttEngine });
 
       form.setValue('referenceText', result.text, { shouldValidate: true });
     } catch (error) {

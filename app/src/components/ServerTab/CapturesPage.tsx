@@ -129,6 +129,7 @@ export function CapturesPage() {
   const { toast } = useToast();
   const readiness = useDictationReadiness();
   const sttModel = settings?.stt_model ?? 'turbo';
+  const sttEngine = settings?.stt_engine ?? 'whisper';
   const language = settings?.language ?? 'auto';
   const autoRefine = settings?.auto_refine ?? true;
   const llmModel = settings?.llm_model ?? '0.6B';
@@ -313,36 +314,61 @@ export function CapturesPage() {
         description={t('settings.captures.transcription.description')}
       >
         <SettingRow
-          title={t('settings.captures.transcription.model.title')}
-          description={t('settings.captures.transcription.model.description')}
+          title={t('settings.captures.transcription.engine.title')}
+          description={t('settings.captures.transcription.engine.description')}
           action={
             <Select
-              value={sttModel}
-              onValueChange={(v) => update({ stt_model: v as WhisperModelSize })}
+              value={sttEngine}
+              onValueChange={(v) => update({ stt_engine: v as 'whisper' | 'parakeet' })}
             >
               <SelectTrigger className="w-[300px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="base">
-                  {t('settings.captures.transcription.model.base', { tail: t('settings.captures.transcription.model.tail.fast') })}
+                <SelectItem value="whisper">
+                  {t('settings.captures.transcription.engine.whisper')}
                 </SelectItem>
-                <SelectItem value="small">
-                  {t('settings.captures.transcription.model.small', { tail: t('settings.captures.transcription.model.tail.balanced') })}
-                </SelectItem>
-                <SelectItem value="medium">
-                  {t('settings.captures.transcription.model.medium', { tail: t('settings.captures.transcription.model.tail.higher') })}
-                </SelectItem>
-                <SelectItem value="large">
-                  {t('settings.captures.transcription.model.large', { tail: t('settings.captures.transcription.model.tail.best') })}
-                </SelectItem>
-                <SelectItem value="turbo">
-                  {t('settings.captures.transcription.model.turbo', { tail: t('settings.captures.transcription.model.tail.nearBest') })}
+                <SelectItem value="parakeet">
+                  {t('settings.captures.transcription.engine.parakeet')}
                 </SelectItem>
               </SelectContent>
             </Select>
           }
         />
+
+        {sttEngine === 'whisper' && (
+          <SettingRow
+            title={t('settings.captures.transcription.model.title')}
+            description={t('settings.captures.transcription.model.description')}
+            action={
+              <Select
+                value={sttModel}
+                onValueChange={(v) => update({ stt_model: v as WhisperModelSize })}
+              >
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="base">
+                    {t('settings.captures.transcription.model.base', { tail: t('settings.captures.transcription.model.tail.fast') })}
+                  </SelectItem>
+                  <SelectItem value="small">
+                    {t('settings.captures.transcription.model.small', { tail: t('settings.captures.transcription.model.tail.balanced') })}
+                  </SelectItem>
+                  <SelectItem value="medium">
+                    {t('settings.captures.transcription.model.medium', { tail: t('settings.captures.transcription.model.tail.higher') })}
+                  </SelectItem>
+                  <SelectItem value="large">
+                    {t('settings.captures.transcription.model.large', { tail: t('settings.captures.transcription.model.tail.best') })}
+                  </SelectItem>
+                  <SelectItem value="turbo">
+                    {t('settings.captures.transcription.model.turbo', { tail: t('settings.captures.transcription.model.tail.nearBest') })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            }
+          />
+        )}
 
         <SettingRow
           title={t('settings.captures.transcription.language.title')}

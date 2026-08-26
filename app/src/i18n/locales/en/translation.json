@@ -918,7 +918,13 @@
       },
       "transcription": {
         "title": "Transcription",
-        "description": "Pick which speech-to-text model runs on your captures.",
+        "description": "Pick which speech-to-text engine and model run on your captures.",
+        "engine": {
+          "title": "STT engine",
+          "description": "Whisper ships with Voicebox and runs entirely on your machine. Parakeet V3 (NeMo) is optional and runs on CPU/CUDA.",
+          "whisper": "Whisper",
+          "parakeet": "Parakeet V3"
+        },
         "model": {
           "title": "Transcription model",
           "description": "Whisper ships with Voicebox and runs entirely on your machine.",

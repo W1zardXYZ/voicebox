@@ -77,6 +77,10 @@ just dev-web
    - Use **Whisper** as STT engine (cached large-v3-turbo), or Parakeet if you
      want the new engine (one-time download).
    - The pipeline synthesizes w/ the cached Qwen3-TTS automatically.
+4. **Captures / dictation** (Settings → Captures → Transcription): pick **Parakeet V3**
+   as the STT engine alongside the Whisper model dropdown, or keep **Whisper** (the
+   faster default on Apple Silicon). Voice-profile transcription honors the same
+   engine choice.
 
 If you prefer Parakeet, its one-time download is contained; diarization needs
 the `HF_TOKEN` and downloads once.
