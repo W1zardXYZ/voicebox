@@ -235,3 +235,164 @@ async def export_story_audio(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Chapters / segments / markdown import (spec §4) ────────────────────────
+
+
+@router.post("/stories/{story_id}/import-markdown", response_model=models.MarkdownImportPreview)
+async def import_markdown_preview(
+    story_id: str,
+    data: models.MarkdownImportRequest,
+    db: Session = Depends(get_db),
+):
+    """Preview how a markdown script splits into chapters/segments (spec §4.3).
+
+    Nothing is written — the client shows the preview and POSTs the approved
+    segmentation to ``/import-markdown/commit``.
+    """
+    story = db.query(database.Story).filter_by(id=story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    try:
+        return stories.import_markdown_preview(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/stories/{story_id}/import-markdown/commit",
+    response_model=models.StoryDetailResponse,
+)
+async def commit_markdown_import(
+    story_id: str,
+    data: models.MarkdownImportCommitRequest,
+    db: Session = Depends(get_db),
+):
+    """Persist an approved segmentation as chapters + segments."""
+    result = await stories.commit_markdown_import(story_id, data, db)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return result
+
+
+@router.post("/stories/{story_id}/chapters", response_model=models.StoryChapterResponse)
+async def create_story_chapter(
+    story_id: str,
+    data: models.StoryChapterCreate,
+    db: Session = Depends(get_db),
+):
+    """Create a chapter."""
+    chapter = await stories.create_chapter(story_id, data, db)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return chapter
+
+
+@router.put(
+    "/stories/{story_id}/chapters/{chapter_id}",
+    response_model=models.StoryChapterResponse,
+)
+async def update_story_chapter(
+    story_id: str,
+    chapter_id: str,
+    data: models.StoryChapterUpdate,
+    db: Session = Depends(get_db),
+):
+    """Rename / reorder a chapter."""
+    chapter = await stories.update_chapter(story_id, chapter_id, data, db)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    return chapter
+
+
+@router.delete("/stories/{story_id}/chapters/{chapter_id}")
+async def delete_story_chapter(
+    story_id: str,
+    chapter_id: str,
+    db: Session = Depends(get_db),
+):
+    """Delete a chapter and its segments."""
+    success = await stories.delete_chapter(story_id, chapter_id, db)
+    if not success:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    return {"message": "Chapter deleted successfully"}
+
+
+@router.post("/stories/{story_id}/segments", response_model=models.StorySegmentResponse)
+async def create_story_segment(
+    story_id: str,
+    data: models.StorySegmentCreate,
+    db: Session = Depends(get_db),
+):
+    """Create a segment in a chapter."""
+    segment = await stories.create_segment(story_id, data, db)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    return segment
+
+
+@router.put(
+    "/stories/{story_id}/segments/{segment_id}",
+    response_model=models.StorySegmentResponse,
+)
+async def update_story_segment(
+    story_id: str,
+    segment_id: str,
+    data: models.StorySegmentUpdate,
+    db: Session = Depends(get_db),
+):
+    """Edit a segment (text / speaker / engine)."""
+    segment = await stories.update_segment(story_id, segment_id, data, db)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return segment
+
+
+@router.delete("/stories/{story_id}/segments/{segment_id}")
+async def delete_story_segment(
+    story_id: str,
+    segment_id: str,
+    db: Session = Depends(get_db),
+):
+    """Delete a segment."""
+    success = await stories.delete_segment(story_id, segment_id, db)
+    if not success:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return {"message": "Segment deleted successfully"}
+
+
+@router.post(
+    "/stories/{story_id}/segments/{segment_id}/generate",
+    response_model=models.StorySegmentResponse,
+)
+async def generate_story_segment(
+    story_id: str,
+    segment_id: str,
+    data: models.StorySegmentGenerateRequest,
+    db: Session = Depends(get_db),
+):
+    """Synthesize one segment (queued, spec §4.7 + §6)."""
+    try:
+        segment = await stories.generate_segment(story_id, segment_id, data, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return segment
+
+
+@router.post(
+    "/stories/{story_id}/segments/generate-many",
+    response_model=list[models.StorySegmentResponse],
+)
+async def generate_many_story_segments(
+    story_id: str,
+    data: models.StorySegmentsGenerateManyRequest,
+    db: Session = Depends(get_db),
+):
+    """Synthesize several segments at once, queued in document order (§6)."""
+    try:
+        return await stories.generate_many_segments(story_id, data, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

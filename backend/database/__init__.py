@@ -21,7 +21,9 @@ from .models import (
     ProfileSample,
     Project,
     Story,
+    StoryChapter,
     StoryItem,
+    StorySegment,
     VoiceProfile,
 )
 from .session import engine, SessionLocal, _db_path, init_db, get_db
@@ -43,7 +45,9 @@ __all__ = [
     "ProfileSample",
     "Project",
     "Story",
+    "StoryChapter",
     "StoryItem",
+    "StorySegment",
     "VoiceProfile",
     # Session
     "engine",

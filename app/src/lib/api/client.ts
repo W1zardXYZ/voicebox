@@ -8,6 +8,7 @@ import type {
   EffectConfig,
   EffectPresetCreate,
   EffectPresetResponse,
+  GenerationQueueResponse,
   GenerationRequest,
   GenerationResponse,
   GenerationVersionResponse,
@@ -15,12 +16,16 @@ import type {
   HistoryListResponse,
   HistoryQuery,
   HistoryResponse,
+  MarkdownImportCommitRequest,
+  MarkdownImportPreview,
+  MarkdownImportRequest,
   ModelDownloadRequest,
   ModelStatusListResponse,
   PresetVoice,
   PersonalityTextResponse,
   ProfileSampleResponse,
   RocmStatus,
+  StoryChapter,
   StoryCreate,
   StoryDetailResponse,
   StoryItemBatchUpdate,
@@ -33,6 +38,8 @@ import type {
   StoryItemVersionUpdate,
   StoryItemVolumeUpdate,
   StoryResponse,
+  StorySegment,
+  StorySegmentUpdate,
   TranscriptionResponse,
   VoiceProfileCreate,
   VoiceProfileResponse,
@@ -385,6 +392,12 @@ class ApiClient {
     return `${this.getBaseUrl()}/generate/${generationId}/status`;
   }
 
+  // Generation queue (spec §6) — ordered list of queued/running generations
+  // with live progress.
+  async getGenerationQueue(): Promise<GenerationQueueResponse> {
+    return this.request<GenerationQueueResponse>('/generate/queue');
+  }
+
   // Audio
   getAudioUrl(audioId: string): string {
     return `${this.getBaseUrl()}/audio/${audioId}`;
@@ -731,6 +744,103 @@ class ApiClient {
 
   async getStory(storyId: string): Promise<StoryDetailResponse> {
     return this.request<StoryDetailResponse>(`/stories/${storyId}`);
+  }
+
+  // ── Chapters / segments / markdown import (spec §4) ────────────────────
+
+  async importMarkdownPreview(
+    storyId: string,
+    data: MarkdownImportRequest,
+  ): Promise<MarkdownImportPreview> {
+    return this.request<MarkdownImportPreview>(`/stories/${storyId}/import-markdown`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async commitMarkdownImport(
+    storyId: string,
+    data: MarkdownImportCommitRequest,
+  ): Promise<StoryDetailResponse> {
+    return this.request<StoryDetailResponse>(`/stories/${storyId}/import-markdown/commit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createChapter(
+    storyId: string,
+    data: { title: string },
+  ): Promise<StoryChapter> {
+    return this.request<StoryChapter>(`/stories/${storyId}/chapters`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateChapter(
+    storyId: string,
+    chapterId: string,
+    data: { title?: string; order_index?: number },
+  ): Promise<StoryChapter> {
+    return this.request<StoryChapter>(`/stories/${storyId}/chapters/${chapterId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteChapter(storyId: string, chapterId: string): Promise<void> {
+    await this.request<void>(`/stories/${storyId}/chapters/${chapterId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async createSegment(
+    storyId: string,
+    data: { chapter_id: string; text: string; profile_id?: string | null },
+  ): Promise<StorySegment> {
+    return this.request<StorySegment>(`/stories/${storyId}/segments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSegment(
+    storyId: string,
+    segmentId: string,
+    data: StorySegmentUpdate,
+  ): Promise<StorySegment> {
+    return this.request<StorySegment>(`/stories/${storyId}/segments/${segmentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSegment(storyId: string, segmentId: string): Promise<void> {
+    await this.request<void>(`/stories/${storyId}/segments/${segmentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async generateSegment(
+    storyId: string,
+    segmentId: string,
+    data: { profile_id?: string | null; language?: string | null } = {},
+  ): Promise<StorySegment> {
+    return this.request<StorySegment>(`/stories/${storyId}/segments/${segmentId}/generate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateManySegments(
+    storyId: string,
+    data: { segment_ids: string[]; profile_id?: string | null },
+  ): Promise<StorySegment[]> {
+    return this.request<StorySegment[]>(`/stories/${storyId}/segments/generate-many`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   async updateStory(storyId: string, data: StoryCreate): Promise<StoryResponse> {

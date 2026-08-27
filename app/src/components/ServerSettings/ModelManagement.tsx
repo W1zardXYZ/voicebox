@@ -10,6 +10,7 @@ import {
   FolderOpen,
   HardDrive,
   Heart,
+  KeyRound,
   Loader2,
   RotateCcw,
   Scale,
@@ -417,14 +418,24 @@ export function ModelManagement() {
         m.model_name.startsWith('kokoro'),
     ) ?? [];
   const whisperModels = modelStatus?.models.filter((m) => m.model_name.startsWith('whisper')) ?? [];
+  // Parakeet is an STT engine too but was silently dropped by the old
+  // whisper-only filter (spec §1.2.2) — surface it under Transcription.
+  const parakeetModels =
+    modelStatus?.models.filter((m) => m.model_name.startsWith('parakeet')) ?? [];
+  const diarizationModels =
+    modelStatus?.models.filter((m) => m.model_name.startsWith('pyannote')) ?? [];
   const llmModels = modelStatus?.models.filter((m) => m.model_name.startsWith('qwen3-')) ?? [];
 
   // Build sections
   const sections: { label: string; models: ModelStatus[] }[] = [
     { label: t('models.sections.voiceGeneration'), models: voiceModels },
-    { label: t('models.sections.transcription'), models: whisperModels },
+    {
+      label: t('models.sections.transcription'),
+      models: [...whisperModels, ...parakeetModels],
+    },
+    { label: t('models.sections.diarization'), models: diarizationModels },
     { label: t('models.sections.languageModels'), models: llmModels },
-  ];
+  ].filter((s) => s.models.length > 0);
 
   // Get detail modal state for selected model
   const selectedState = selectedModel ? getModelState(selectedModel) : null;
@@ -564,6 +575,16 @@ export function ModelManagement() {
                       {/* Name + inline progress */}
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-medium">{model.display_name}</span>
+                        {model.supported === false && (
+                          <span className="text-[10px] text-destructive ml-1.5">
+                            {t('models.notSupported')}
+                          </span>
+                        )}
+                        {model.support_note && (
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {model.support_note}
+                          </p>
+                        )}
                         {isDownloading &&
                           (() => {
                             const dl = downloadProgressMap.get(model.model_name);
@@ -587,6 +608,16 @@ export function ModelManagement() {
                         {hasError && (
                           <Badge variant="destructive" className="text-[10px] h-5">
                             {t('common.error')}
+                          </Badge>
+                        )}
+                        {model.needs_token && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] h-5"
+                            title={t('models.status.needsToken')}
+                          >
+                            <KeyRound className="h-3 w-3 mr-1" />
+                            {t('models.status.needsToken')}
                           </Badge>
                         )}
                         {model.loaded && (
@@ -705,6 +736,12 @@ export function ModelManagement() {
                       {t('models.status.loaded')}
                     </Badge>
                   )}
+                  {freshSelectedModel.needs_token && (
+                    <Badge variant="outline" className="text-xs">
+                      <KeyRound className="h-3 w-3 mr-1" />
+                      {t('models.status.needsToken')}
+                    </Badge>
+                  )}
                   {selectedState?.hasError && (
                     <Badge variant="destructive" className="text-xs">
                       <CircleX className="h-3 w-3 mr-1" />
@@ -712,6 +749,19 @@ export function ModelManagement() {
                     </Badge>
                   )}
                 </div>
+
+                {/* Platform compatibility note */}
+                {freshSelectedModel.support_note && (
+                  <p className="text-xs text-muted-foreground flex items-start gap-1.5 leading-relaxed">
+                    <HardDrive className="h-3 w-3 mt-0.5 shrink-0" />
+                    {t('models.supportNote', { note: freshSelectedModel.support_note })}
+                  </p>
+                )}
+                {freshSelectedModel.note && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {freshSelectedModel.note}
+                  </p>
+                )}
 
                 {/* HuggingFace model card info */}
                 {hfLoading && freshSelectedModel.hf_repo_id && (

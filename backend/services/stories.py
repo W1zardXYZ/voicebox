@@ -23,10 +23,21 @@ from ..models import (
     StoryItemVolumeUpdate,
     StoryItemSplit,
     StoryItemVersionUpdate,
+    MarkdownImportRequest,
+    MarkdownImportPreview,
+    MarkdownImportCommitRequest,
+    StoryChapterCreate,
+    StoryChapterUpdate,
+    StoryChapterResponse,
+    StorySegmentCreate,
+    StorySegmentUpdate,
+    StorySegmentResponse,
 )
 from ..database import (
     Story as DBStory,
     StoryItem as DBStoryItem,
+    StoryChapter as DBStoryChapter,
+    StorySegment as DBStorySegment,
     Generation as DBGeneration,
     VoiceProfile as DBVoiceProfile,
 )
@@ -181,6 +192,7 @@ async def get_story(
 
     response = StoryDetailResponse.model_validate(story)
     response.items = item_details
+    response.chapters = _list_chapters(story_id, db)
     return response
 
 
@@ -340,6 +352,12 @@ async def move_story_item(
     """
     Move a story item (update position and/or track).
 
+    Applies overlap resolution (spec §5.2): the requested placement is nudged
+    forward to the first free gap on the target track when it would overlap an
+    existing item's ``[start, start+duration)`` range, so the timeline can
+    never hold two fully-overlapping clips on one track. The returned detail
+    reflects the final (possibly nudged) placement.
+
     Args:
         story_id: Story ID
         item_id: Story item ID
@@ -366,9 +384,21 @@ async def move_story_item(
     if not generation:
         return None
 
+    requested_start = data.start_time_ms
+    requested_track = data.track
+
+    final_start = _resolve_collision_free_placement(
+        db,
+        story_id=story_id,
+        exclude_item_id=item.id,
+        track=requested_track,
+        start_ms=requested_start,
+        duration_ms=int((generation.duration or 0) * 1000),
+    )
+
     # Update position and track
-    item.start_time_ms = data.start_time_ms
-    item.track = data.track
+    item.start_time_ms = final_start
+    item.track = requested_track
 
     # Update story updated_at
     story = db.query(DBStory).filter_by(id=story_id).first()
@@ -382,6 +412,53 @@ async def move_story_item(
     profile = db.query(DBVoiceProfile).filter_by(id=generation.profile_id).first()
 
     return _build_item_detail(item, generation, profile.name if profile else "Unknown", db)
+
+
+def _resolve_collision_free_placement(
+    db: Session,
+    *,
+    story_id: str,
+    exclude_item_id: str,
+    track: int,
+    start_ms: int,
+    duration_ms: int,
+    gap_ms: int = 100,
+) -> int:
+    """Return the first placement on *track* that does not overlap another item.
+
+    Starts at *start_ms* and nudges forward past any overlapping item (plus a
+    *gap_ms* cushion). An item with unknown/zero duration is treated as a
+    point at its ``start_time_ms`` so it can never block the timeline
+    forever. Pure query logic — no writes.
+    """
+    if duration_ms <= 0:
+        duration_ms = 1
+
+    others = (
+        db.query(DBStoryItem, DBGeneration)
+        .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
+        .filter(
+            DBStoryItem.story_id == story_id,
+            DBStoryItem.track == track,
+            DBStoryItem.id != exclude_item_id,
+        )
+        .all()
+    )
+
+    candidate = max(0, start_ms)
+    while True:
+        blocker_end = None
+        for other_item, other_gen in others:
+            other_dur = int((other_gen.duration or 0) * 1000)
+            if other_dur <= 0:
+                other_dur = 1
+            other_start = other_item.start_time_ms
+            # [candidate, candidate+duration) ∩ [other_start, other_start+other_dur)
+            if candidate < other_start + other_dur and other_start < candidate + duration_ms:
+                blocker_end = max(blocker_end or 0, other_start + other_dur)
+        if blocker_end is None:
+            return candidate
+        candidate = blocker_end + gap_ms
 
 
 async def remove_item_from_story(
@@ -976,3 +1053,598 @@ async def export_story_audio(
     finally:
         # Clean up temp file
         Path(tmp_path).unlink(missing_ok=True)
+
+
+# ── Chapters / segments (spec §4) ──────────────────────────────────────────
+
+
+def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentResponse:
+    """Build a StorySegmentResponse, denormalizing the profile name."""
+    profile_name = None
+    if segment.profile_id:
+        profile = db.query(DBVoiceProfile).filter_by(id=segment.profile_id).first()
+        profile_name = profile.name if profile else None
+    return StorySegmentResponse(
+        id=segment.id,
+        chapter_id=segment.chapter_id,
+        order_index=segment.order_index,
+        text=segment.text,
+        profile_id=segment.profile_id,
+        profile_name=profile_name,
+        engine=segment.engine,
+        model_size=segment.model_size,
+        language=segment.language,
+        status=segment.status,
+        generation_id=segment.generation_id,
+        created_at=segment.created_at,
+        updated_at=segment.updated_at,
+    )
+
+
+def _chapter_response(chapter: DBStoryChapter, db: Session) -> StoryChapterResponse:
+    segments = (
+        db.query(DBStorySegment)
+        .filter_by(chapter_id=chapter.id)
+        .order_by(DBStorySegment.order_index)
+        .all()
+    )
+    return StoryChapterResponse(
+        id=chapter.id,
+        story_id=chapter.story_id,
+        title=chapter.title,
+        source=chapter.source,
+        order_index=chapter.order_index,
+        created_at=chapter.created_at,
+        updated_at=chapter.updated_at,
+        segments=[_segment_response(s, db) for s in segments],
+    )
+
+
+def _list_chapters(story_id: str, db: Session) -> list[StoryChapterResponse]:
+    chapters = (
+        db.query(DBStoryChapter)
+        .filter_by(story_id=story_id)
+        .order_by(DBStoryChapter.order_index)
+        .all()
+    )
+    return [_chapter_response(c, db) for c in chapters]
+
+
+def _ensure_chapter_order(db: Session, story_id: str) -> None:
+    """Re-index chapter order_index to 0..n-1 after insert/delete/reorder."""
+    chapters = (
+        db.query(DBStoryChapter)
+        .filter_by(story_id=story_id)
+        .order_by(DBStoryChapter.order_index, DBStoryChapter.created_at)
+        .all()
+    )
+    for i, chapter in enumerate(chapters):
+        if chapter.order_index != i:
+            chapter.order_index = i
+    db.flush()
+
+
+def _ensure_segment_order(db: Session, chapter_id: str) -> None:
+    """Re-index segment order_index to 0..n-1 after insert/delete."""
+    segments = (
+        db.query(DBStorySegment)
+        .filter_by(chapter_id=chapter_id)
+        .order_by(DBStorySegment.order_index, DBStorySegment.created_at)
+        .all()
+    )
+    for i, segment in enumerate(segments):
+        if segment.order_index != i:
+            segment.order_index = i
+    db.flush()
+
+
+def import_markdown_preview(data: MarkdownImportRequest) -> MarkdownImportPreview:
+    """Segment *markdown* into a preview (spec §4.3) — nothing is written."""
+    from .story_markdown import segment_markdown
+    from ..models import MarkdownChapterPreview, MarkdownSegmentPreview
+
+    chapters = segment_markdown(
+        data.markdown,
+        mode=data.mode,
+        speak_untagged=data.speak_untagged,
+        combine_max_chars=data.combine_max_chars,
+    )
+    return MarkdownImportPreview(
+        chapters=[
+            MarkdownChapterPreview(
+                title=c.title,
+                level=c.level,
+                segments=[
+                    MarkdownSegmentPreview(
+                        text=s.text,
+                        source_span=s.source_span,
+                        tags=s.tags,
+                        speaker_hint=s.speaker_hint,
+                    )
+                    for s in c.segments
+                ],
+            )
+            for c in chapters
+        ]
+    )
+
+
+async def commit_markdown_import(
+    story_id: str,
+    data: MarkdownImportCommitRequest,
+    db: Session,
+) -> Optional[StoryDetailResponse]:
+    """Persist an approved segmentation as chapters + segments (spec §4.3)."""
+    story = db.query(DBStory).filter_by(id=story_id).first()
+    if not story:
+        return None
+
+    existing_count = db.query(DBStoryChapter).filter_by(story_id=story_id).count()
+
+    for ch_index, chapter in enumerate(data.chapters):
+        db_chapter = DBStoryChapter(
+            id=str(uuid.uuid4()),
+            story_id=story_id,
+            title=chapter.title or "Untitled",
+            order_index=existing_count + ch_index,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(db_chapter)
+
+        for seg_index, seg in enumerate(chapter.segments):
+            profile_id = seg.profile_id
+            if profile_id is None and seg.speaker_hint:
+                # Look up an existing profile by (case-insensitive) name so a
+                # `[read aloud: Narrator]` hint maps to a real voice when one
+                # exists; otherwise the segment stays unassigned.
+                match = (
+                    db.query(DBVoiceProfile)
+                    .filter(func.lower(DBVoiceProfile.name) == seg.speaker_hint.lower())
+                    .first()
+                )
+                if match:
+                    profile_id = match.id
+
+            db.add(
+                DBStorySegment(
+                    id=str(uuid.uuid4()),
+                    chapter_id=db_chapter.id,
+                    order_index=seg_index,
+                    text=seg.text,
+                    profile_id=profile_id,
+                    status="draft",
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+
+    story.updated_at = datetime.utcnow()
+    db.commit()
+    return await get_story(story_id, db)
+
+
+async def create_chapter(
+    story_id: str,
+    data: StoryChapterCreate,
+    db: Session,
+) -> Optional[StoryChapterResponse]:
+    story = db.query(DBStory).filter_by(id=story_id).first()
+    if not story:
+        return None
+    next_index = db.query(func.max(DBStoryChapter.order_index)).filter_by(story_id=story_id).scalar() or 0
+    chapter = DBStoryChapter(
+        id=str(uuid.uuid4()),
+        story_id=story_id,
+        title=data.title,
+        order_index=next_index,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(chapter)
+    story.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(chapter)
+    return _chapter_response(chapter, db)
+
+
+async def update_chapter(
+    story_id: str,
+    chapter_id: str,
+    data: StoryChapterUpdate,
+    db: Session,
+) -> Optional[StoryChapterResponse]:
+    chapter = (
+        db.query(DBStoryChapter).filter_by(id=chapter_id, story_id=story_id).first()
+    )
+    if not chapter:
+        return None
+    if data.title is not None:
+        chapter.title = data.title
+    if data.order_index is not None:
+        chapter.order_index = data.order_index
+    chapter.updated_at = datetime.utcnow()
+    db.commit()
+    _ensure_chapter_order(db, story_id)
+    db.commit()
+    db.refresh(chapter)
+    return _chapter_response(chapter, db)
+
+
+async def delete_chapter(story_id: str, chapter_id: str, db: Session) -> bool:
+    chapter = (
+        db.query(DBStoryChapter).filter_by(id=chapter_id, story_id=story_id).first()
+    )
+    if not chapter:
+        return False
+    db.query(DBStorySegment).filter_by(chapter_id=chapter_id).delete()
+    db.delete(chapter)
+    db.commit()
+    _ensure_chapter_order(db, story_id)
+    db.commit()
+    return True
+
+
+async def create_segment(
+    story_id: str,
+    data: StorySegmentCreate,
+    db: Session,
+) -> Optional[StorySegmentResponse]:
+    chapter = (
+        db.query(DBStoryChapter).filter_by(id=data.chapter_id, story_id=story_id).first()
+    )
+    if not chapter:
+        return None
+    next_index = (
+        db.query(func.max(DBStorySegment.order_index)).filter_by(chapter_id=chapter.id).scalar() or 0
+    )
+    segment = DBStorySegment(
+        id=str(uuid.uuid4()),
+        chapter_id=chapter.id,
+        order_index=data.order_index if data.order_index is not None else next_index,
+        text=data.text,
+        profile_id=data.profile_id,
+        status="draft",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(segment)
+    chapter.updated_at = datetime.utcnow()
+    db.commit()
+    _ensure_segment_order(db, chapter.id)
+    db.commit()
+    db.refresh(segment)
+    return _segment_response(segment, db)
+
+
+async def update_segment(
+    story_id: str,
+    segment_id: str,
+    data: StorySegmentUpdate,
+    db: Session,
+) -> Optional[StorySegmentResponse]:
+    segment = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id == segment_id,
+            DBStoryChapter.story_id == story_id,
+        )
+        .first()
+    )
+    if not segment:
+        return None
+    if data.text is not None:
+        segment.text = data.text
+    if data.profile_id is not None:
+        segment.profile_id = data.profile_id
+    if data.engine is not None:
+        segment.engine = data.engine
+    if data.model_size is not None:
+        segment.model_size = data.model_size
+    if data.language is not None:
+        segment.language = data.language
+    # Editing a segment invalidates any completed generation.
+    if data.text is not None:
+        segment.status = "draft"
+    segment.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(segment)
+    return _segment_response(segment, db)
+
+
+async def delete_segment(story_id: str, segment_id: str, db: Session) -> bool:
+    segment = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id == segment_id,
+            DBStoryChapter.story_id == story_id,
+        )
+        .first()
+    )
+    if not segment:
+        return False
+    chapter_id = segment.chapter_id
+    db.delete(segment)
+    db.commit()
+    _ensure_segment_order(db, chapter_id)
+    db.commit()
+    return True
+
+
+def _resolve_segment_profile(
+    segment: DBStorySegment,
+    db: Session,
+    override_profile_id: str | None,
+) -> Optional[DBVoiceProfile]:
+    """Segment voice resolution: request override → segment → story default."""
+    profile_id = override_profile_id or segment.profile_id
+    if profile_id:
+        profile = db.query(DBVoiceProfile).filter_by(id=profile_id).first()
+        if profile:
+            return profile
+    chapter = db.query(DBStoryChapter).filter_by(id=segment.chapter_id).first()
+    if chapter is not None:
+        story = db.query(DBStory).filter_by(id=chapter.story_id).first()
+        if story is not None:
+            default_id = getattr(story, "default_voice_profile_id", None)
+            if default_id:
+                profile = db.query(DBVoiceProfile).filter_by(id=default_id).first()
+                if profile:
+                    return profile
+    return None
+
+
+def _estimate_duration_ms(text: str) -> int:
+    """Rough duration estimate for a clip whose generation hasn't completed
+    yet. German TTS runs at roughly 14 chars/second, so sequential segment
+    items placed at enqueue time (duration still 0 in the DB) would otherwise
+    stack on top of each other once their generations finish."""
+    if not text:
+        return 0
+    return int(max(800, (len(text) / 14.0) * 1000))
+
+
+def _append_segment_story_item(
+    db: Session,
+    *,
+    story_id: str,
+    generation_id: str,
+    segment_id: str,
+    track: int = 0,
+) -> DBStoryItem:
+    """Append a generation to the story timeline after the current end.
+
+    Mirrors add_item_to_story's auto-placement (max end + 200ms gap) so
+    sequentially generated segments line up without overlapping. Clips whose
+    generation is still queued have duration 0 in the DB, so an estimate is
+    used for them to keep the chain from stacking.
+    """
+    existing = (
+        db.query(DBStoryItem, DBGeneration)
+        .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
+        .filter(DBStoryItem.story_id == story_id, DBStoryItem.track == track)
+        .all()
+    )
+    if not existing:
+        start_time_ms = 0
+    else:
+        max_end = 0
+        for item, gen in existing:
+            duration_ms = int((gen.duration or 0) * 1000)
+            if duration_ms <= 0:
+                duration_ms = _estimate_duration_ms(gen.text)
+            max_end = max(max_end, item.start_time_ms + duration_ms)
+        start_time_ms = max_end + 200
+
+    item = DBStoryItem(
+        id=str(uuid.uuid4()),
+        story_id=story_id,
+        generation_id=generation_id,
+        start_time_ms=start_time_ms,
+        track=track,
+        story_segment_id=segment_id,
+        created_at=datetime.utcnow(),
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
+async def generate_segment(
+    story_id: str,
+    segment_id: str,
+    data: "StorySegmentGenerateRequest",
+    db: Session,
+) -> Optional[StorySegmentResponse]:
+    """Synthesize one segment: create a Generation, enqueue it, and place a
+    StoryItem on the timeline traced back to the segment (spec §4.5/§4.7)."""
+    from ..services import history as history_service
+    from ..services.task_queue import enqueue_generation
+    from ..services.generation import run_generation
+    from ..utils.tasks import get_task_manager
+
+    segment = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id == segment_id,
+            DBStoryChapter.story_id == story_id,
+        )
+        .first()
+    )
+    if not segment:
+        return None
+
+    profile = _resolve_segment_profile(segment, db, data.profile_id)
+    if profile is None:
+        raise ValueError(
+            "No voice assigned to this segment. Assign a voice profile to the "
+            "segment or the story first."
+        )
+
+    engine = (
+        segment.engine
+        or getattr(profile, "default_engine", None)
+        or getattr(profile, "preset_engine", None)
+        or "qwen"
+    )
+    model_size = segment.model_size or "1.7B"
+    language = data.language or segment.language or profile.language or "en"
+
+    from ..backends import engine_has_model_sizes
+
+    generation_id = str(uuid.uuid4())
+    generation = await history_service.create_generation(
+        profile_id=profile.id,
+        text=segment.text,
+        language=language,
+        audio_path="",
+        duration=0,
+        seed=None,
+        db=db,
+        generation_id=generation_id,
+        status="generating",
+        engine=engine,
+        model_size=model_size if engine_has_model_sizes(engine) else None,
+        source="story_segment",
+    )
+
+    task_manager = get_task_manager()
+    task_manager.start_generation(generation_id, profile.id, segment.text)
+
+    segment.generation_id = generation_id
+    segment.status = "queued"
+    segment.updated_at = datetime.utcnow()
+    db.commit()
+
+    _append_segment_story_item(
+        db,
+        story_id=story_id,
+        generation_id=generation_id,
+        segment_id=segment.id,
+    )
+    db.commit()
+
+    enqueue_generation(
+        generation_id,
+        run_generation(
+            generation_id=generation_id,
+            profile_id=profile.id,
+            text=segment.text,
+            language=language,
+            engine=engine,
+            model_size=model_size,
+            seed=None,
+            normalize=True,
+            mode="generate",
+        ),
+    )
+
+    db.refresh(segment)
+    return _segment_response(segment, db)
+
+
+async def generate_many_segments(
+    story_id: str,
+    data: "StorySegmentsGenerateManyRequest",
+    db: Session,
+) -> list[StorySegmentResponse]:
+    """Enqueue several segments at once (spec §4.7 generate-many, §6 queue)."""
+    from ..services.task_queue import enqueue_generation
+    from ..services.generation import run_generation
+    from ..services import history as history_service
+    from ..utils.tasks import get_task_manager
+    from ..backends import engine_has_model_sizes
+
+    story = db.query(DBStory).filter_by(id=story_id).first()
+    if not story:
+        raise ValueError("Story not found")
+
+    segments = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id.in_(data.segment_ids),
+            DBStoryChapter.story_id == story_id,
+        )
+        .order_by(DBStoryChapter.order_index, DBStorySegment.order_index)
+        .all()
+    )
+    found = {s.id for s in segments}
+    missing = [sid for sid in data.segment_ids if sid not in found]
+    if missing:
+        raise ValueError(f"Segments not found in this story: {missing}")
+
+    task_manager = get_task_manager()
+    results: list[StorySegmentResponse] = []
+
+    for segment in segments:
+        profile = _resolve_segment_profile(segment, db, data.profile_id)
+        if profile is None:
+            segment.status = "error"
+            segment.updated_at = datetime.utcnow()
+            db.commit()
+            results.append(_segment_response(segment, db))
+            continue
+
+        engine = (
+            segment.engine
+            or getattr(profile, "default_engine", None)
+            or getattr(profile, "preset_engine", None)
+            or "qwen"
+        )
+        model_size = segment.model_size or "1.7B"
+        language = segment.language or profile.language or "en"
+
+        generation_id = str(uuid.uuid4())
+        await history_service.create_generation(
+            profile_id=profile.id,
+            text=segment.text,
+            language=language,
+            audio_path="",
+            duration=0,
+            seed=None,
+            db=db,
+            generation_id=generation_id,
+            status="generating",
+            engine=engine,
+            model_size=model_size if engine_has_model_sizes(engine) else None,
+            source="story_segment",
+        )
+        task_manager.start_generation(generation_id, profile.id, segment.text)
+
+        segment.generation_id = generation_id
+        segment.status = "queued"
+        segment.updated_at = datetime.utcnow()
+        db.commit()
+
+        _append_segment_story_item(
+            db,
+            story_id=story_id,
+            generation_id=generation_id,
+            segment_id=segment.id,
+        )
+        db.commit()
+
+        enqueue_generation(
+            generation_id,
+            run_generation(
+                generation_id=generation_id,
+                profile_id=profile.id,
+                text=segment.text,
+                language=language,
+                engine=engine,
+                model_size=model_size,
+                seed=None,
+                normalize=True,
+                mode="generate",
+            ),
+        )
+        db.refresh(segment)
+        results.append(_segment_response(segment, db))
+
+    story.updated_at = datetime.utcnow()
+    db.commit()
+    return results

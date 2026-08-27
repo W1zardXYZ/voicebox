@@ -12,6 +12,12 @@ interface GenerationStatusEvent {
   duration?: number;
   error?: string;
   source?: string;
+  // Live progress (spec §6.2.2)
+  state?: 'queued' | 'loading_model' | 'generating';
+  progress?: number | null;
+  chunk_index?: number | null;
+  chunk_count?: number | null;
+  message?: string | null;
 }
 
 // Agent-initiated generations are played by the floating pill, not the
@@ -21,7 +27,9 @@ const AGENT_SOURCES = new Set(['mcp', 'rest']);
 /**
  * Subscribes to SSE for all pending generations. When a generation completes,
  * invalidates the history query, removes it from pending, and auto-plays
- * if the player is idle.
+ * if the player is idle. While a generation is active, live progress
+ * (state / progress / chunk counters / message) is written to the
+ * generation store for the queue panel (spec §6).
  */
 export function useGenerationProgress() {
   const queryClient = useQueryClient();
@@ -29,6 +37,8 @@ export function useGenerationProgress() {
   const pendingIds = useGenerationStore((s) => s.pendingGenerationIds);
   const removePendingGeneration = useGenerationStore((s) => s.removePendingGeneration);
   const removePendingStoryAdd = useGenerationStore((s) => s.removePendingStoryAdd);
+  const setGenerationProgress = useGenerationStore((s) => s.setGenerationProgress);
+  const removeGenerationProgress = useGenerationStore((s) => s.removeGenerationProgress);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const setAudioWithAutoPlay = usePlayerStore((s) => s.setAudioWithAutoPlay);
   const { settings: genSettings } = useGenerationSettings();
@@ -76,10 +86,28 @@ export function useGenerationProgress() {
         try {
           const data: GenerationStatusEvent = JSON.parse(event.data);
 
+          // Forward live progress to the store for the queue panel.
+          if (
+            data.state ||
+            data.progress !== undefined ||
+            data.chunk_index !== undefined ||
+            data.chunk_count !== undefined ||
+            data.message !== undefined
+          ) {
+            setGenerationProgress(id, {
+              state: data.state,
+              progress: data.progress,
+              chunk_index: data.chunk_index,
+              chunk_count: data.chunk_count,
+              message: data.message,
+            });
+          }
+
           if (data.status === 'completed') {
             source.close();
             currentSources.delete(id);
             removePendingGeneration(id);
+            removeGenerationProgress(id);
 
             // Refetch history to pick up the completed generation
             queryClient.refetchQueries({ queryKey: ['history'] });
@@ -106,13 +134,6 @@ export function useGenerationProgress() {
                     variant: 'destructive',
                   });
                 });
-            } else {
-              // toast({
-              //   title: 'Generation complete!',
-              //   description: data.duration
-              //     ? `Audio generated (${data.duration.toFixed(2)}s)`
-              //     : 'Audio generated',
-              // });
             }
 
             // Auto-play if enabled and nothing is currently playing.
@@ -127,6 +148,7 @@ export function useGenerationProgress() {
             source.close();
             currentSources.delete(id);
             removePendingGeneration(id);
+            removeGenerationProgress(id);
             removePendingStoryAdd(id);
 
             queryClient.refetchQueries({ queryKey: ['history'] });
@@ -148,6 +170,7 @@ export function useGenerationProgress() {
         source.close();
         currentSources.delete(id);
         removePendingGeneration(id);
+        removeGenerationProgress(id);
         queryClient.refetchQueries({ queryKey: ['history'] });
       };
 
@@ -157,6 +180,8 @@ export function useGenerationProgress() {
     pendingIds,
     removePendingGeneration,
     removePendingStoryAdd,
+    removeGenerationProgress,
+    setGenerationProgress,
     queryClient,
     toast,
     setAudioWithAutoPlay,

@@ -205,6 +205,9 @@ const TRACK_HEIGHT = 48;
 const TIME_RULER_HEIGHT = 24; // h-6 = 1.5rem = 24px
 const SCRUB_BAR_HEIGHT = 16;
 const LABEL_COL_WIDTH = 64; // w-16 = 4rem = 64px
+// Snap grid for clip placement / trims / splits (spec §5.2). Clips also snap
+// to other clips' edges on the target track when within SNAP_MS.
+const SNAP_MS = 100;
 // Zoom is expressed to the user as how many seconds of timeline are visible
 // at once. Min scope = the most you can zoom IN; max scope = the entire
 // project. Default scope is what we land on when the editor first measures.
@@ -214,6 +217,29 @@ const FALLBACK_PIXELS_PER_SECOND = 50; // used until containerWidth is measured
 const DEFAULT_TRACKS = [1, 0, -1]; // Default 3 tracks
 const MIN_EDITOR_HEIGHT = 120;
 const MAX_EDITOR_HEIGHT = 500;
+
+/**
+ * Snap a time (ms) to the SNAP_MS grid and to nearby clip edges.
+ *
+ * Prefers the closest target: the grid point wins unless a clip edge (from
+ * *snapSet*, e.g. other items' start/end on the target track) is strictly
+ * closer and within SNAP_MS. Returns a non-negative **integer** so the value
+ * is already normalized to the backend's int-ms boundary (spec §5.1.5).
+ */
+function snapTime(ms: number, snapSet: number[] = []): number {
+  const clamped = Math.max(0, ms);
+  let best = Math.round(clamped / SNAP_MS) * SNAP_MS;
+  let bestDist = Math.abs(clamped - best);
+  for (const edge of snapSet) {
+    if (!Number.isFinite(edge)) continue;
+    const d = Math.abs(clamped - edge);
+    if (d <= SNAP_MS && d < bestDist) {
+      best = edge;
+      bestDist = d;
+    }
+  }
+  return Math.max(0, Math.round(best));
+}
 
 export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
   const [pixelsPerSecond, setPixelsPerSecond] = useState(FALLBACK_PIXELS_PER_SECOND);
@@ -608,7 +634,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       if (trimSide === 'start') {
         // Moving right increases trim_start (trims more from start)
         // Moving left decreases trim_start (restores from start)
-        newTrimStart = Math.round(
+        newTrimStart = snapTime(
           Math.max(
             0,
             Math.min(initialTrimStart + deltaMs, originalDurationMs - initialTrimEnd - 100),
@@ -617,7 +643,7 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       } else {
         // Moving right decreases trim_end (restores from end)
         // Moving left increases trim_end (trims more from end)
-        newTrimEnd = Math.round(
+        newTrimEnd = snapTime(
           Math.max(
             0,
             Math.min(initialTrimEnd - deltaMs, originalDurationMs - initialTrimStart - 100),
@@ -691,9 +717,9 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
     if (!item) return;
 
     // currentTimeMs is driven by audio playback and arrives as a float;
-    // the backend's StoryItemSplit.split_time_ms is `int`, so round before
-    // sending or pydantic rejects the request.
-    const splitTimeMs = Math.round(currentTimeMs - item.start_time_ms);
+    // the backend's StoryItemSplit.split_time_ms is `int`, so snap + round
+    // before sending (spec §5.1.5 / §5.2).
+    const splitTimeMs = snapTime(Math.round(currentTimeMs - item.start_time_ms));
     const effectiveDuration = getEffectiveDuration(item);
 
     if (splitTimeMs <= 0 || splitTimeMs >= effectiveDuration) {
@@ -900,13 +926,17 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
       return;
     }
 
-    // Calculate new time from x position
-    const newTimeMs = Math.max(0, Math.round(pixelsToMs(dragPosition.x)));
-
     // Calculate new track from y position
     const trackIndex = Math.floor(dragPosition.y / TRACK_HEIGHT);
     const clampedTrackIndex = Math.max(0, Math.min(trackIndex, tracks.length - 1));
     const newTrack = tracks[clampedTrackIndex] ?? 0;
+
+    // Calculate new time from x position, snapped to the SNAP_MS grid and to
+    // the edges of other clips on the target track (spec §5.2).
+    const otherEdges = items
+      .filter((i) => i.id !== draggingItem && i.track === newTrack)
+      .flatMap((i) => [i.start_time_ms, i.start_time_ms + getEffectiveDuration(i)]);
+    const newTimeMs = snapTime(pixelsToMs(dragPosition.x), otherEdges);
 
     // Check if position changed
     if (newTimeMs !== item.start_time_ms || newTrack !== item.track) {
@@ -932,7 +962,17 @@ export function StoryTrackEditor({ storyId, items }: StoryTrackEditorProps) {
     }
 
     setDraggingItem(null);
-  }, [draggingItem, dragPosition, items, tracks, pixelsToMs, storyId, moveItem, toast]);
+  }, [
+    draggingItem,
+    dragPosition,
+    items,
+    tracks,
+    pixelsToMs,
+    getEffectiveDuration,
+    storyId,
+    moveItem,
+    toast,
+  ]);
 
   // Get track index for rendering
   const getTrackIndex = (trackNumber: number) => tracks.indexOf(trackNumber);

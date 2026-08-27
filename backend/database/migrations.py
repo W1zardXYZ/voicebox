@@ -37,6 +37,7 @@ def run_migrations(engine) -> None:
     tables = set(inspector.get_table_names())
 
     _migrate_story_items(engine, inspector, tables)
+    _migrate_story_chapters_segments(engine, inspector, tables)
     _migrate_profiles(engine, inspector, tables)
     _migrate_generations(engine, inspector, tables)
     _migrate_effect_presets(engine, inspector, tables)
@@ -139,6 +140,72 @@ def _migrate_story_items(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "story_items", "version_id VARCHAR", "version_id")
     if "volume" not in columns:
         _add_column(engine, "story_items", "volume FLOAT NOT NULL DEFAULT 1.0", "volume")
+
+
+def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> None:
+    """Create the story_chapters / story_segments tables and the
+    ``story_items.story_segment_id`` back-reference (spec §4.2).
+
+    Both are optional — legacy stories stay flat. Table creation is guarded
+    by existence checks so it is idempotent across startups.
+    """
+    if "story_chapters" not in tables:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE story_chapters (
+                    id VARCHAR PRIMARY KEY,
+                    story_id VARCHAR NOT NULL,
+                    title VARCHAR NOT NULL,
+                    source TEXT,
+                    order_index INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX ix_story_chapters_story_id ON story_chapters (story_id)"
+            ))
+            conn.commit()
+        logger.info("Created story_chapters table")
+
+    if "story_segments" not in tables:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE story_segments (
+                    id VARCHAR PRIMARY KEY,
+                    chapter_id VARCHAR NOT NULL,
+                    order_index INTEGER NOT NULL DEFAULT 0,
+                    text TEXT NOT NULL,
+                    profile_id VARCHAR,
+                    engine VARCHAR,
+                    model_size VARCHAR,
+                    language VARCHAR,
+                    status VARCHAR NOT NULL DEFAULT 'draft',
+                    generation_id VARCHAR,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX ix_story_segments_chapter_id ON story_segments (chapter_id)"
+            ))
+            conn.commit()
+        logger.info("Created story_segments table")
+
+    if "story_items" in tables:
+        columns = _get_columns(inspector, "story_items")
+        if "story_segment_id" not in columns:
+            _add_column(engine, "story_items", "story_segment_id VARCHAR", "story_segment_id")
+
+    if "stories" in tables:
+        columns = _get_columns(inspector, "stories")
+        if "default_voice_profile_id" not in columns:
+            _add_column(
+                engine,
+                "stories",
+                "default_voice_profile_id VARCHAR",
+                "default_voice_profile_id",
+            )
 
 
 def _migrate_profiles(engine, inspector, tables: set[str]) -> None:

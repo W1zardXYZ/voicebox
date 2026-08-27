@@ -379,7 +379,7 @@
       "play": "Riproduci campione",
       "pause": "Pausa campione",
       "stop": "Interrompi",
-            "stopAria": "Interrompi riproduzione",
+      "stopAria": "Interrompi riproduzione",
       "position": "Posizione riproduzione campione",
       "positionValue": "{{current}} di {{total}}"
     },
@@ -641,7 +641,15 @@
       "exportFailed": "Impossibile esportare l'audio",
       "addFailed": "Impossibile aggiungere la generazione",
       "regenerateFailed": "Impossibile rigenerare",
-      "importFailed": "Impossibile importare l'audio"
+      "importFailed": "Impossibile importare l'audio",
+      "addSegmentFailed": "Failed to add segment"
+    },
+    "importScript": "Import script (.md)",
+    "chapters": {
+      "noSegments": "No segments yet — add one below or import a markdown script.",
+      "newSegment": "New segment text…",
+      "addSegment": "Add",
+      "emptyHint": "Select a chapter."
     }
   },
   "history": {
@@ -1124,7 +1132,8 @@
         "title": "Passa al backend CPU",
         "description": "Disabilita l'accelerazione GPU. Potrai scaricare nuovamente il backend GPU in un secondo momento.",
         "button": "Passa a CPU"
-      },      "remove": {
+      },
+      "remove": {
         "title": "Rimuovi il backend CUDA",
         "description": "Elimina il file binario CUDA scaricato per liberare spazio sul disco.",
         "button": "Rimuovi"
@@ -1191,10 +1200,14 @@
     "sections": {
       "voiceGeneration": "Generazione vocale",
       "transcription": "Trascrizione",
-      "languageModels": "Modelli linguistici"
+      "languageModels": "Modelli linguistici",
+      "diarization": "Diarization",
+      "auxiliary": "Auxiliary"
     },
     "status": {
-      "loaded": "Caricato"
+      "loaded": "Caricato",
+      "cpuOnly": "CPU",
+      "needsToken": "HF token required"
     },
     "storage": {
       "location": "Posizione di archiviazione",
@@ -1268,6 +1281,56 @@
       "migrationFailed": "Migrazione non riuscita",
       "migrationFailedGeneric": "Impossibile migrare i modelli",
       "migrationConnectionLost": "Connessione interrotta durante la migrazione"
+    },
+    "supportNote": "Compatibility: {{note}}",
+    "notSupported": "Not supported on this machine"
+  },
+  "segments": {
+    "generate": "Generate",
+    "speakerLabel": "Speaker",
+    "speakerFailed": "Failed to assign speaker",
+    "saveFailed": "Failed to save segment",
+    "unassigned": "Unassigned (story default)",
+    "assignSpeaker": "Assign speaker…",
+    "textPlaceholder": "Segment text…",
+    "status": {
+      "draft": "Draft",
+      "queued": "Queued",
+      "generating": "Generating",
+      "completed": "Completed",
+      "error": "Error"
     }
+  },
+  "chapters": {
+    "title": "Chapters",
+    "empty": "No chapters yet.",
+    "newTitle": "Chapter title…",
+    "rename": "Rename",
+    "generateAll": "Generate all segments",
+    "delete": "Delete chapter",
+    "allDone": "All segments in this chapter are already generated.",
+    "generateFailed": "Failed to generate chapter"
+  },
+  "import": {
+    "title": "Import markdown script",
+    "description": "Split your script into chapters and segments, then generate.",
+    "chooseFile": "Choose .md file",
+    "chars": "characters",
+    "splitMode": "Split mode",
+    "combine": "Combine under (chars, 0 = off)",
+    "speakUntagged": "Treat untagged text as read-aloud too",
+    "preview": "Preview segmentation",
+    "previewTitle": "{{chapters}} chapters, {{segments}} segments",
+    "commit": "Import {{count}} segments",
+    "empty": "The script is empty.",
+    "previewFailed": "Failed to preview segmentation",
+    "committed": "Script imported",
+    "commitFailed": "Failed to import script"
+  },
+  "splitModes": {
+    "h1": "By H1 (one chapter per #)",
+    "h2": "By H2 (one chapter per ##)",
+    "paragraph": "By paragraph",
+    "readAloud": "Read-aloud tags"
   }
 }

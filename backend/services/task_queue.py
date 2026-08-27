@@ -24,8 +24,15 @@ class GenerationJob:
 _generation_queue: asyncio.Queue = None  # type: ignore  # initialized at startup
 _generation_worker_task: asyncio.Task | None = None
 _queued_generation_ids: set[str] = set()
+# FIFO order of queued generations (a set has no order; the snapshot needs one)
+_queued_generation_order: list[str] = []
 _running_generation_tasks: dict[str, asyncio.Task] = {}
 _cancelled_generation_ids: set[str] = set()
+# Set while shutting down so the worker can tell "my own cancellation" apart
+# from "one of my job tasks was cancelled" (cancel_generation). The worker must
+# swallow the latter but never the former — otherwise a shutdown cancel that
+# lands mid-job is consumed and the worker keeps running forever.
+_shutdown_requested = False
 
 
 def create_background_task(coro) -> asyncio.Task:
@@ -43,15 +50,23 @@ async def _generation_worker():
         try:
             if job.generation_id in _cancelled_generation_ids:
                 _cancelled_generation_ids.discard(job.generation_id)
+                _discard_queued_order(job.generation_id)
                 job.coro.close()
                 continue
 
             task = asyncio.create_task(job.coro)
             _running_generation_tasks[job.generation_id] = task
             _queued_generation_ids.discard(job.generation_id)
+            _discard_queued_order(job.generation_id)
             try:
                 await task
             except asyncio.CancelledError:
+                # A cancelled *job* (cancel_generation) ends this job but not
+                # the worker. A shutdown cancellation is signalled through
+                # _shutdown_requested and must always propagate — swallowing it
+                # here would leave the worker running forever.
+                if _shutdown_requested:
+                    raise
                 if not task.cancelled():
                     raise
         except Exception:
@@ -63,7 +78,16 @@ async def _generation_worker():
         finally:
             _running_generation_tasks.pop(job.generation_id, None)
             _queued_generation_ids.discard(job.generation_id)
+            _discard_queued_order(job.generation_id)
             _generation_queue.task_done()
+
+
+def _discard_queued_order(generation_id: str) -> None:
+    """Remove *generation_id* from the FIFO order list (in place, no-op if absent)."""
+    try:
+        _queued_generation_order.remove(generation_id)
+    except ValueError:
+        pass
 
 
 async def _force_fail_if_active(generation_id: str, error: str) -> None:
@@ -99,6 +123,7 @@ def enqueue_generation(generation_id: str, coro):
         raise RuntimeError("Generation queue has not been initialized")
 
     _queued_generation_ids.add(generation_id)
+    _queued_generation_order.append(generation_id)
     _generation_queue.put_nowait(GenerationJob(generation_id=generation_id, coro=coro))
 
 
@@ -111,10 +136,28 @@ def cancel_generation(generation_id: str) -> Literal["queued", "running"] | None
 
     if generation_id in _queued_generation_ids:
         _queued_generation_ids.discard(generation_id)
+        _discard_queued_order(generation_id)
         _cancelled_generation_ids.add(generation_id)
         return "queued"
 
     return None
+
+
+def get_queue_snapshot() -> list[dict]:
+    """Return an ordered snapshot of the generation queue (spec §6.2.1).
+
+    Running task first, then queued jobs in FIFO order. Each entry is
+    ``{"generation_id": str, "state": "queued" | "running"}``. Live progress
+    lives in the TaskManager, keyed by the same generation id.
+    """
+    entries: list[dict] = [
+        {"generation_id": gen_id, "state": "running"}
+        for gen_id in list(_running_generation_tasks.keys())
+    ]
+    for gen_id in _queued_generation_order:
+        if gen_id in _queued_generation_ids:
+            entries.append({"generation_id": gen_id, "state": "queued"})
+    return entries
 
 
 def init_queue(force: bool = False):
@@ -124,16 +167,41 @@ def init_queue(force: bool = False):
     """
     global _generation_queue, _generation_worker_task
     global _queued_generation_ids, _running_generation_tasks, _cancelled_generation_ids
+    global _queued_generation_order, _shutdown_requested
 
     if _generation_worker_task is not None and not _generation_worker_task.done():
         if not force:
             return
-        _generation_worker_task.cancel()
-        for task in list(_running_generation_tasks.values()):
-            task.cancel()
+        shutdown_queue()
 
     _generation_queue = asyncio.Queue()
     _queued_generation_ids = set()
+    _queued_generation_order = []
     _running_generation_tasks = {}
     _cancelled_generation_ids = set()
+    _shutdown_requested = False
     _generation_worker_task = create_background_task(_generation_worker())
+
+
+def shutdown_queue() -> None:
+    """Stop the worker and cancel any running generations.
+
+    Used by tests and application shutdown. Safe to call multiple times.
+    """
+    global _generation_worker_task, _shutdown_requested
+    _shutdown_requested = True
+    worker = _generation_worker_task
+    _generation_worker_task = None
+    if worker is not None and not worker.done():
+        try:
+            worker.cancel()
+        except RuntimeError:
+            # The worker belongs to an already-closed event loop (test
+            # teardown crossing function-scoped loops) — nothing to cancel.
+            pass
+    for task in list(_running_generation_tasks.values()):
+        task.cancel()
+    _running_generation_tasks.clear()
+    _queued_generation_ids.clear()
+    _queued_generation_order.clear()
+    _cancelled_generation_ids.clear()

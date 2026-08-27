@@ -214,6 +214,7 @@ async def generate_chunked(
     crossfade_ms: int = 50,
     trim_fn=None,
     runaway_detector=None,
+    progress_callback=None,
 ) -> Tuple[np.ndarray, int]:
     """Generate audio with automatic chunking for long text.
 
@@ -245,6 +246,12 @@ async def generate_chunked(
     runaway_detector : callable | None
         Optional ``(audio, sample_rate) -> bool`` detector. When it flags
         unstable output, the affected text is split in half and retried.
+    progress_callback : callable | None
+        Optional ``(index, total, message) -> None`` invoked once per chunk
+        (and once with ``index=0`` before the first chunk). ``index`` is
+        1-based for actual chunks; ``total`` is the chunk count. Lets the
+        caller surface chunk-level generation progress (spec §6.2.2) —
+        this is the honest, engine-agnostic progress signal.
 
     Returns
     -------
@@ -310,6 +317,8 @@ async def generate_chunked(
 
     if len(chunks) <= 1:
         # Short text — single-shot fast path
+        if progress_callback is not None:
+            progress_callback(1, 1, "Synthesizing")
         return await generate_one(text, seed)
 
     # Long text — chunked generation
@@ -329,6 +338,12 @@ async def generate_chunked(
             len(chunks),
             len(chunk_text),
         )
+        if progress_callback is not None:
+            progress_callback(
+                i + 1,
+                len(chunks),
+                f"Synthesizing chunk {i + 1}/{len(chunks)}",
+            )
         # Vary the seed per chunk to avoid correlated RNG artefacts,
         # but keep it deterministic so the same (text, seed) pair
         # always produces the same output.

@@ -126,6 +126,115 @@ def get_torch_device(
     return "cpu"
 
 
+# Engine → the ``get_torch_device()`` flags each backend resolves with. Single
+# source of truth for platform-compatibility notes (see ``engine_platform_note``)
+# so the Models pane and the generate path can never drift from the actual
+# device resolution. Keep in sync with each backend's ``_get_device``.
+ENGINE_DEVICE_POLICY: dict[str, dict] = {
+    "qwen": {"allow_xpu": True, "allow_directml": True, "allow_mps": True},
+    "qwen_custom_voice": {"allow_xpu": True, "allow_directml": True, "allow_mps": True},
+    "luxtts": {"allow_mps": True, "allow_xpu": True},
+    "chatterbox": {"force_cpu_on_mac": True, "allow_xpu": True},
+    "chatterbox_turbo": {"force_cpu_on_mac": True, "allow_xpu": True},
+    "tada": {"force_cpu_on_mac": True, "allow_xpu": True},
+    "kokoro": {"allow_mps": False},
+    "whisper": {"allow_xpu": True, "allow_directml": True},
+    "parakeet": {"force_cpu_on_mac": True},
+    "pyannote": {"force_cpu_on_mac": True},
+    "qwen_llm": {"allow_xpu": True, "allow_directml": True, "allow_mps": True},
+}
+
+
+def engine_device_policy(engine: str) -> dict:
+    """Return the ``get_torch_device()`` flags for *engine* (unknown → CPU-only)."""
+    return ENGINE_DEVICE_POLICY.get(engine, {})
+
+
+def engine_platform_note(engine: str) -> tuple[bool, str | None]:
+    """Derive ``(supported, note)`` for *engine* on the current machine.
+
+    ``supported`` is whether the engine's device policy can run here at all
+    (every engine has a CPU fallback, so it is ``True`` today; kept as a real
+    field for future engines that genuinely cannot run on this platform).
+    ``note`` is a human-readable platform hint, e.g. "Runs on CPU on Apple
+    Silicon (no Metal path)" or "Uses the Apple GPU (MPS)".
+    """
+    policy = engine_device_policy(engine)
+    is_darwin = platform.system() == "Darwin"
+    is_arm = platform.machine() in ("arm64", "aarch64")
+    apple_silicon = is_darwin and is_arm
+
+    if apple_silicon:
+        if policy.get("allow_mps"):
+            return True, "Uses the Apple GPU (MPS)"
+        if policy.get("force_cpu_on_mac"):
+            return True, "Runs on CPU on Apple Silicon (no Metal path)"
+        return True, "Runs on CPU on Apple Silicon (MPS disabled for this engine)"
+    if is_darwin:
+        # Intel Mac — MPS requires Apple Silicon, so it falls back to CPU.
+        if policy.get("allow_mps"):
+            return True, "Runs on CPU on this Mac (MPS needs Apple Silicon)"
+        return True, "Runs on CPU on this Mac"
+    return True, None
+
+
+def mps_is_available() -> bool:
+    """True when the current torch build can run on Apple's Metal (MPS)."""
+    try:
+        import torch
+
+        return bool(
+            getattr(getattr(torch, "backends", None), "mps", None)
+            and torch.backends.mps.is_available()
+        )
+    except Exception:
+        return False
+
+
+def build_model_kwargs(
+    device: str,
+    dtype=None,
+    *,
+    low_cpu_mem_usage: bool = False,
+) -> dict:
+    """Build the ``from_pretrained`` kwargs for loading a model on *device*.
+
+    ``transformers``/``AutoModel.from_pretrained`` has **no** ``device=``
+    argument — only ``device_map``, which expects a *map* (dict) or one of the
+    special modes ("auto", "balanced", "balanced_low_0", "sequential").
+    Passing a bare device string ("cuda", "mps", "xpu") as ``device_map`` is
+    forwarded verbatim and trips accelerate's device inference — the "GPU
+    string" family of errors (spec §2). The robust single-device convention is
+    load-on-CPU then ``model.to(device)`` (see :func:`load_model_to_device`);
+    this is also the only pattern transformers supports for MPS.
+
+    Returns a dict safe to splat into ``from_pretrained(...)`` — it never
+    contains a ``device_map`` key.
+    """
+    import torch
+
+    if device == "cpu":
+        return {
+            "torch_dtype": torch.float32,
+            "low_cpu_mem_usage": low_cpu_mem_usage,
+        }
+    return {
+        "torch_dtype": dtype if dtype is not None else torch.bfloat16,
+        "low_cpu_mem_usage": low_cpu_mem_usage,
+    }
+
+
+def load_model_to_device(model, device: str):
+    """Move a freshly-loaded model onto *device* (no-op for CPU).
+
+    Use together with :func:`build_model_kwargs`. Returns the model (the same
+    object) so it can be used as an expression.
+    """
+    if device == "cpu":
+        return model
+    return model.to(device)
+
+
 def check_cuda_compatibility() -> tuple[bool, str | None]:
     """Check if the installed PyTorch supports the current GPU's compute capability.
 
@@ -171,10 +280,7 @@ def check_cuda_compatibility() -> tuple[bool, str | None]:
 
 def empty_device_cache(device: str) -> None:
     """
-    Free cached memory on the given device (CUDA or XPU).
-
-    Backends should call this after unloading models so VRAM is returned
-    to the OS.
+    Free cached memory on the given device (CUDA, XPU, or MPS).
     """
     import torch
 
@@ -182,13 +288,18 @@ def empty_device_cache(device: str) -> None:
         torch.cuda.empty_cache()
     elif device == "xpu" and hasattr(torch, "xpu"):
         torch.xpu.empty_cache()
+    elif device == "mps" and mps_is_available():
+        # torch.mps.empty_cache exists on torch >= 2.0; fall back silently.
+        empty = getattr(torch.mps, "empty_cache", None)
+        if empty is not None:
+            empty()
 
 
 def manual_seed(seed: int, device: str) -> None:
     """
     Set the random seed on both CPU and the active accelerator.
 
-    Covers CUDA and Intel XPU so that generation is reproducible
+    Covers CUDA, Intel XPU, and Apple MPS so that generation is reproducible
     regardless of which GPU backend is in use.
     """
     import torch
@@ -198,6 +309,10 @@ def manual_seed(seed: int, device: str) -> None:
         torch.cuda.manual_seed(seed)
     elif device == "xpu" and hasattr(torch, "xpu"):
         torch.xpu.manual_seed(seed)
+    elif device == "mps" and mps_is_available():
+        manual_seed_mps = getattr(torch.mps, "manual_seed", None)
+        if manual_seed_mps is not None:
+            manual_seed_mps(seed)
 
 
 async def combine_voice_prompts(

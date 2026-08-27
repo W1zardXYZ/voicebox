@@ -118,6 +118,23 @@ export interface GenerationResponse {
   active_version_id?: string;
 }
 
+/** One entry of GET /generate/queue (spec §6). */
+export interface GenerationQueueItem {
+  generation_id: string;
+  profile_id?: string | null;
+  text_preview: string;
+  state: 'queued' | 'running' | 'loading_model' | 'generating';
+  progress?: number | null;
+  chunk_index?: number | null;
+  chunk_count?: number | null;
+  message?: string | null;
+  enqueued_at?: string | null;
+}
+
+export interface GenerationQueueResponse {
+  items: GenerationQueueItem[];
+}
+
 export interface HistoryQuery {
   profile_id?: string;
   search?: string;
@@ -338,6 +355,11 @@ export interface ModelStatus {
   downloading: boolean; // True if download is in progress
   size_mb?: number;
   loaded: boolean;
+  engine?: string; // Engine this model belongs to (qwen, parakeet, pyannote, ...)
+  supported?: boolean; // Whether the engine can run on this machine
+  support_note?: string; // e.g. "Runs on CPU on Apple Silicon (no Metal path)"
+  needs_token?: boolean; // Gated repo requires an authenticated HF token
+  note?: string; // Static per-config note (licensing / gating hints)
 }
 
 export interface HuggingFaceModelInfo {
@@ -434,6 +456,33 @@ export interface StoryItemVersionUpdate {
   version_id: string | null;
 }
 
+export interface StorySegment {
+  id: string;
+  chapter_id: string;
+  order_index: number;
+  text: string;
+  profile_id?: string | null;
+  profile_name?: string | null;
+  engine?: string | null;
+  model_size?: string | null;
+  language?: string | null;
+  status: 'draft' | 'queued' | 'generating' | 'completed' | 'error';
+  generation_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoryChapter {
+  id: string;
+  story_id: string;
+  title: string;
+  source?: string | null;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+  segments: StorySegment[];
+}
+
 export interface StoryDetailResponse {
   id: string;
   name: string;
@@ -441,6 +490,58 @@ export interface StoryDetailResponse {
   created_at: string;
   updated_at: string;
   items: StoryItemDetail[];
+  /** Optional chapter → segment hierarchy (spec §4); empty for flat stories. */
+  chapters: StoryChapter[];
+}
+
+// ── Markdown import (spec §4.3/§4.4) ─────────────────────────────────────
+
+export interface MarkdownSegmentPreview {
+  text: string;
+  source_span: string;
+  tags: string[];
+  speaker_hint?: string | null;
+}
+
+export interface MarkdownChapterPreview {
+  title: string;
+  level: number;
+  segments: MarkdownSegmentPreview[];
+}
+
+export interface MarkdownImportPreview {
+  chapters: MarkdownChapterPreview[];
+}
+
+export interface MarkdownImportRequest {
+  markdown: string;
+  mode: 'h1' | 'h2' | 'paragraph' | 'read_aloud';
+  speak_untagged: boolean;
+  combine_max_chars: number;
+  language?: string | null;
+}
+
+export interface MarkdownSegmentCommit {
+  text: string;
+  profile_id?: string | null;
+  speaker_hint?: string | null;
+}
+
+export interface MarkdownChapterCommit {
+  title: string;
+  segments: MarkdownSegmentCommit[];
+}
+
+export interface MarkdownImportCommitRequest {
+  chapters: MarkdownChapterCommit[];
+}
+
+export interface StorySegmentUpdate {
+  text?: string;
+  profile_id?: string | null;
+  engine?: string | null;
+  model_size?: string | null;
+  language?: string | null;
 }
 
 export interface StoryItemCreate {

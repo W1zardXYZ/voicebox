@@ -23,8 +23,12 @@ import torch
 
 from . import TTSBackend, LANGUAGE_CODE_TO_NAME
 from .base import (
+    build_model_kwargs,
+    engine_device_policy,
     is_model_cached,
     get_torch_device,
+    empty_device_cache,
+    load_model_to_device,
     combine_voice_prompts as _combine_voice_prompts,
     model_load_progress,
 )
@@ -65,7 +69,8 @@ class QwenCustomVoiceBackend:
         self._current_model_size: Optional[str] = None
 
     def _get_device(self) -> str:
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        """Get the best available device (MPS on Apple Silicon, CUDA/XPU/DirectML elsewhere)."""
+        return get_torch_device(**engine_device_policy("qwen_custom_voice"))
 
     def is_loaded(self) -> bool:
         return self.model is not None
@@ -107,15 +112,17 @@ class QwenCustomVoiceBackend:
             if self.device == "cpu":
                 self.model = Qwen3TTSModel.from_pretrained(
                     model_path,
-                    torch_dtype=torch.float32,
-                    low_cpu_mem_usage=False,
+                    **build_model_kwargs(self.device, low_cpu_mem_usage=False),
                 )
             else:
                 self.model = Qwen3TTSModel.from_pretrained(
                     model_path,
-                    device_map=self.device,
-                    torch_dtype=torch.bfloat16,
+                    **build_model_kwargs(self.device, torch.bfloat16, low_cpu_mem_usage=False),
                 )
+                # See pytorch_backend._load_model_sync — transformers has no
+                # device= kwarg and a bare device string as device_map trips
+                # accelerate's GPU inference; move explicitly instead.
+                load_model_to_device(self.model, self.device)
 
         self._current_model_size = model_size
         self.model_size = model_size
@@ -127,8 +134,7 @@ class QwenCustomVoiceBackend:
             self.model = None
             self._current_model_size = None
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            empty_device_cache(self.device)
 
             logger.info("Qwen CustomVoice unloaded")
 

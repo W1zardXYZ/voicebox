@@ -641,7 +641,15 @@
       "exportFailed": "导出音频失败",
       "addFailed": "添加生成失败",
       "regenerateFailed": "重新生成失败",
-      "importFailed": "导入音频失败"
+      "importFailed": "导入音频失败",
+      "addSegmentFailed": "Failed to add segment"
+    },
+    "importScript": "Import script (.md)",
+    "chapters": {
+      "noSegments": "No segments yet — add one below or import a markdown script.",
+      "newSegment": "New segment text…",
+      "addSegment": "Add",
+      "emptyHint": "Select a chapter."
     }
   },
   "history": {
@@ -760,8 +768,13 @@
       }
     },
     "general": {
-      "docs": { "title": "阅读文档" },
-      "discord": { "title": "加入 Discord", "subtitle": "获取帮助 & 分享声音" },
+      "docs": {
+        "title": "阅读文档"
+      },
+      "discord": {
+        "title": "加入 Discord",
+        "subtitle": "获取帮助 & 分享声音"
+      },
       "serverUrl": {
         "title": "服务器 URL",
         "description": "Voicebox 后端服务器的地址。",
@@ -1159,10 +1172,14 @@
     "sections": {
       "voiceGeneration": "语音生成",
       "transcription": "语音转录",
-      "languageModels": "语言模型"
+      "languageModels": "语言模型",
+      "diarization": "Diarization",
+      "auxiliary": "Auxiliary"
     },
     "status": {
-      "loaded": "已加载"
+      "loaded": "已加载",
+      "cpuOnly": "CPU",
+      "needsToken": "HF token required"
     },
     "storage": {
       "location": "存储位置",
@@ -1236,6 +1253,56 @@
       "migrationFailed": "迁移失败",
       "migrationFailedGeneric": "迁移模型失败",
       "migrationConnectionLost": "迁移期间丢失连接"
+    },
+    "supportNote": "Compatibility: {{note}}",
+    "notSupported": "Not supported on this machine"
+  },
+  "segments": {
+    "generate": "Generate",
+    "speakerLabel": "Speaker",
+    "speakerFailed": "Failed to assign speaker",
+    "saveFailed": "Failed to save segment",
+    "unassigned": "Unassigned (story default)",
+    "assignSpeaker": "Assign speaker…",
+    "textPlaceholder": "Segment text…",
+    "status": {
+      "draft": "Draft",
+      "queued": "Queued",
+      "generating": "Generating",
+      "completed": "Completed",
+      "error": "Error"
     }
+  },
+  "chapters": {
+    "title": "Chapters",
+    "empty": "No chapters yet.",
+    "newTitle": "Chapter title…",
+    "rename": "Rename",
+    "generateAll": "Generate all segments",
+    "delete": "Delete chapter",
+    "allDone": "All segments in this chapter are already generated.",
+    "generateFailed": "Failed to generate chapter"
+  },
+  "import": {
+    "title": "Import markdown script",
+    "description": "Split your script into chapters and segments, then generate.",
+    "chooseFile": "Choose .md file",
+    "chars": "characters",
+    "splitMode": "Split mode",
+    "combine": "Combine under (chars, 0 = off)",
+    "speakUntagged": "Treat untagged text as read-aloud too",
+    "preview": "Preview segmentation",
+    "previewTitle": "{{chapters}} chapters, {{segments}} segments",
+    "commit": "Import {{count}} segments",
+    "empty": "The script is empty.",
+    "previewFailed": "Failed to preview segmentation",
+    "committed": "Script imported",
+    "commitFailed": "Failed to import script"
+  },
+  "splitModes": {
+    "h1": "By H1 (one chapter per #)",
+    "h2": "By H2 (one chapter per ##)",
+    "paragraph": "By paragraph",
+    "readAloud": "Read-aloud tags"
   }
 }

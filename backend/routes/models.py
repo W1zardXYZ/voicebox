@@ -243,7 +243,11 @@ async def get_model_status():
     except ImportError:
         use_scan_cache = False
 
-    from ..backends import get_all_model_configs, check_model_loaded
+    from ..backends import (
+        check_model_loaded,
+        engine_platform_note,
+        get_all_model_configs,
+    )
 
     registry_configs = get_all_model_configs()
     model_configs = [
@@ -252,6 +256,9 @@ async def get_model_status():
             "display_name": cfg.display_name,
             "hf_repo_id": cfg.hf_repo_id,
             "model_size": cfg.model_size,
+            "engine": cfg.engine,
+            "needs_token": cfg.needs_token,
+            "note": cfg.note,
             "check_loaded": lambda c=cfg: check_model_loaded(c),
         }
         for cfg in registry_configs
@@ -353,6 +360,8 @@ async def get_model_status():
                 downloaded = False
                 size_mb = None
 
+            supported, support_note = engine_platform_note(config["engine"])
+
             statuses.append(
                 models.ModelStatus(
                     model_name=config["model_name"],
@@ -362,6 +371,11 @@ async def get_model_status():
                     downloading=is_downloading,
                     size_mb=size_mb,
                     loaded=loaded,
+                    engine=config["engine"],
+                    supported=supported,
+                    support_note=support_note,
+                    needs_token=config["needs_token"],
+                    note=config["note"],
                 )
             )
         except Exception:
@@ -372,6 +386,8 @@ async def get_model_status():
 
             is_downloading = config["hf_repo_id"] in active_download_repos
 
+            supported, support_note = engine_platform_note(config["engine"])
+
             statuses.append(
                 models.ModelStatus(
                     model_name=config["model_name"],
@@ -381,6 +397,11 @@ async def get_model_status():
                     downloading=is_downloading,
                     size_mb=None,
                     loaded=loaded,
+                    engine=config["engine"],
+                    supported=supported,
+                    support_note=support_note,
+                    needs_token=config["needs_token"],
+                    note=config["note"],
                 )
             )
 

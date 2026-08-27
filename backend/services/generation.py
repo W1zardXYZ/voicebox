@@ -65,6 +65,12 @@ async def run_generation(
 
         if not tts_model.is_loaded():
             await history.update_generation_status(generation_id, "loading_model", bg_db)
+            task_manager.update_generation_progress(
+                generation_id,
+                state="loading_model",
+                progress=None,
+                message="Loading model…",
+            )
 
         await load_engine_model(engine, model_size)
 
@@ -76,6 +82,7 @@ async def run_generation(
         )
 
         await history.update_generation_status(generation_id, "generating", bg_db)
+        _update_linked_story_segment(generation_id, "generating")
         trim_fn = trim_tts_output if engine_needs_trim(engine) else None
         runaway_detector = has_tts_runaway if engine_retries_runaway(engine) else None
 
@@ -91,7 +98,25 @@ async def run_generation(
         if crossfade_ms is not None:
             gen_kwargs["crossfade_ms"] = crossfade_ms
 
-        audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
+        # Surface chunk-level progress (spec §6.2.2) so /generate/queue and
+        # the status SSE can show a real % while sampling runs.
+        def _report_progress(index: int, total: int, message: str) -> None:
+            task_manager.update_generation_progress(
+                generation_id,
+                state="generating",
+                progress=(index / total) if total else None,
+                chunk_index=index,
+                chunk_count=total,
+                message=message,
+            )
+
+        audio, sample_rate = await generate_chunked(
+            tts_model,
+            text,
+            voice_prompt,
+            progress_callback=_report_progress,
+            **gen_kwargs,
+        )
 
         # --- Normalize (generate and regenerate always; retry skips) -----
         if normalize or mode == "regenerate":
@@ -133,6 +158,7 @@ async def run_generation(
             audio_path=final_path,
             duration=duration,
         )
+        _update_linked_story_segment(generation_id, "completed")
 
     except asyncio.CancelledError:
         await history.update_generation_status(
@@ -141,6 +167,7 @@ async def run_generation(
             db=bg_db,
             error="Generation cancelled",
         )
+        _update_linked_story_segment(generation_id, "error")
         _notify_speak_end(generation_id, status="cancelled")
     except Exception as e:
         traceback.print_exc()
@@ -150,12 +177,38 @@ async def run_generation(
             db=bg_db,
             error=str(e),
         )
+        _update_linked_story_segment(generation_id, "error")
         _notify_speak_end(generation_id, status="failed")
     else:
         _notify_speak_end(generation_id, status="completed")
     finally:
         task_manager.complete_generation(generation_id)
         bg_db.close()
+
+
+def _update_linked_story_segment(generation_id: str, status: str) -> None:
+    """Mirror a generation's terminal state onto the StorySegment that
+    produced it (spec §4.5). Best-effort — never breaks generation."""
+    try:
+        from datetime import datetime as _dt
+
+        from ..database import StorySegment as DBStorySegment
+
+        seg_db = next(get_db())
+        try:
+            segment = (
+                seg_db.query(DBStorySegment)
+                .filter_by(generation_id=generation_id)
+                .first()
+            )
+            if segment is not None and segment.status in ("queued", "generating"):
+                segment.status = status
+                segment.updated_at = _dt.utcnow()
+                seg_db.commit()
+        finally:
+            seg_db.close()
+    except Exception:
+        traceback.print_exc()
 
 
 def _notify_speak_end(generation_id: str, *, status: str) -> None:

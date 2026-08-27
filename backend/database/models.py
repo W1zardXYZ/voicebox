@@ -93,6 +93,53 @@ class Story(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
     description = Column(Text)
+    # Default voice for segments without an explicit speaker (spec §4.2).
+    default_voice_profile_id = Column(String, ForeignKey("profiles.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class StoryChapter(Base):
+    """A chapter inside a story (spec §4 — ElevenLabs-style hierarchy).
+
+    Chapters are optional: legacy stories are flat lists of StoryItems with no
+    chapters or segments. When present, a story is
+    ``Story → Chapter → Segment → Generation/StoryItem``.
+    """
+
+    __tablename__ = "story_chapters"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    story_id = Column(String, ForeignKey("stories.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    # The markdown slice this chapter was segmented from (informational).
+    source = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class StorySegment(Base):
+    """A chunk of story text with an assignable speaker (spec §4).
+
+    ``text`` is the narration/dialogue to synthesize. ``profile_id`` assigns a
+    voice (None → story default voice). When generated, ``generation_id``
+    points at the resulting Generation row and ``status`` tracks the
+    draft→queued→generating→completed|error lifecycle.
+    """
+
+    __tablename__ = "story_segments"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chapter_id = Column(String, ForeignKey("story_chapters.id"), nullable=False, index=True)
+    order_index = Column(Integer, nullable=False, default=0)
+    text = Column(Text, nullable=False)
+    profile_id = Column(String, ForeignKey("profiles.id"), nullable=True)
+    engine = Column(String, nullable=True)
+    model_size = Column(String, nullable=True)
+    language = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="draft")  # draft|queued|generating|completed|error
+    generation_id = Column(String, ForeignKey("generations.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -111,6 +158,8 @@ class StoryItem(Base):
     trim_start_ms = Column(Integer, nullable=False, default=0)
     trim_end_ms = Column(Integer, nullable=False, default=0)
     volume = Column(Float, nullable=False, default=1.0)
+    # Optional trace-back from a timeline clip to its story segment (spec §4.2).
+    story_segment_id = Column(String, ForeignKey("story_segments.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

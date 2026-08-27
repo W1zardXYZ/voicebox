@@ -479,6 +479,16 @@ class ModelStatus(BaseModel):
     downloading: bool = False  # True if download is in progress
     size_mb: float | None = None
     loaded: bool = False
+    # Engine this model belongs to (e.g. "qwen", "parakeet", "pyannote").
+    engine: str | None = None
+    # Platform compatibility, derived from the engine's device policy — see
+    # ``backend/backends/base.engine_platform_note``.
+    supported: bool = True
+    support_note: str | None = None  # e.g. "Runs on CPU on Apple Silicon"
+    # True when the repo is gated and needs an authenticated HF token.
+    needs_token: bool = False
+    # Static per-config note (licensing / gating hints), if any.
+    note: str | None = None
 
 
 class ModelStatusListResponse(BaseModel):
@@ -629,6 +639,9 @@ class StoryDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: list[StoryItemDetail] = []
+    # Optional chapter → segment hierarchy (spec §4); empty for legacy flat
+    # stories. Forward ref: StoryChapterResponse is defined below.
+    chapters: list["StoryChapterResponse"] = []
 
     class Config:
         from_attributes = True
@@ -696,6 +709,156 @@ class StoryItemVolumeUpdate(BaseModel):
     """
 
     volume: float = Field(..., ge=0.0, le=2.0)
+
+
+# ── Story chapters / segments (spec §4) ──────────────────────────────────
+
+
+class StorySegmentResponse(BaseModel):
+    """Response model for a story segment (a chunk of text + speaker)."""
+
+    id: str
+    chapter_id: str
+    order_index: int = 0
+    text: str
+    profile_id: str | None = None
+    profile_name: str | None = None  # denormalized for the UI
+    engine: str | None = None
+    model_size: str | None = None
+    language: str | None = None
+    status: str = "draft"  # draft|queued|generating|completed|error
+    generation_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class StoryChapterResponse(BaseModel):
+    """Response model for a story chapter with its segments."""
+
+    id: str
+    story_id: str
+    title: str
+    source: str | None = None
+    order_index: int = 0
+    created_at: datetime
+    updated_at: datetime
+    segments: list[StorySegmentResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class StoryChapterCreate(BaseModel):
+    """Request model for creating a chapter."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+
+
+class StoryChapterUpdate(BaseModel):
+    """Request model for renaming/reordering a chapter."""
+
+    title: str | None = Field(None, min_length=1, max_length=200)
+    order_index: int | None = Field(None, ge=0)
+
+
+class StorySegmentCreate(BaseModel):
+    """Request model for creating a segment."""
+
+    chapter_id: str
+    text: str = Field(..., min_length=1)
+    profile_id: str | None = None
+    order_index: int | None = None
+
+
+class StorySegmentUpdate(BaseModel):
+    """Request model for editing a segment (text / speaker / engine)."""
+
+    text: str | None = Field(None, min_length=1)
+    profile_id: str | None = None
+    engine: str | None = None
+    model_size: str | None = None
+    language: str | None = None
+
+
+class StorySegmentGenerateRequest(BaseModel):
+    """Request model for generating one segment's audio."""
+
+    profile_id: str | None = None  # override the segment's speaker
+    language: str | None = None
+
+
+class StorySegmentsGenerateManyRequest(BaseModel):
+    """Request model for generating several segments at once (queued, §6)."""
+
+    segment_ids: list[str] = Field(..., min_length=1)
+    profile_id: str | None = None
+
+
+# ── Markdown import (spec §4.3/§4.4) ──────────────────────────────────────
+
+
+class MarkdownSegmentPreview(BaseModel):
+    """One proposed segment in the import preview."""
+
+    text: str
+    source_span: str = ""  # "start:end" char offsets into the markdown
+    tags: list[str] = []
+    speaker_hint: str | None = None  # e.g. "Narrator" from `[read aloud: Narrator]`
+
+
+class MarkdownChapterPreview(BaseModel):
+    """One proposed chapter in the import preview."""
+
+    title: str
+    level: int = 1
+    segments: list[MarkdownSegmentPreview] = []
+
+
+class MarkdownImportPreview(BaseModel):
+    """The segmentation preview returned before anything is written."""
+
+    chapters: list[MarkdownChapterPreview] = []
+
+
+class MarkdownImportRequest(BaseModel):
+    """Request model for previewing a markdown import segmentation."""
+
+    markdown: str = Field(..., min_length=1)
+    mode: str = Field(
+        default="h1",
+        description="h1 | h2 | paragraph | read_aloud — how to split into chapters/segments",
+    )
+    speak_untagged: bool = True
+    combine_max_chars: int = Field(
+        default=0,
+        ge=0,
+        description="Merge consecutive segments under N chars (0 = disabled)",
+    )
+    language: str | None = None
+
+
+class MarkdownSegmentCommit(BaseModel):
+    """One segment to persist on import-commit."""
+
+    text: str = Field(..., min_length=1)
+    profile_id: str | None = None
+    speaker_hint: str | None = None
+
+
+class MarkdownChapterCommit(BaseModel):
+    """One chapter to persist on import-commit."""
+
+    title: str = Field(..., min_length=1)
+    segments: list[MarkdownSegmentCommit] = []
+
+
+class MarkdownImportCommitRequest(BaseModel):
+    """Request model for committing an approved segmentation."""
+
+    chapters: list[MarkdownChapterCommit] = Field(..., min_length=1)
 
 
 class EffectConfig(BaseModel):

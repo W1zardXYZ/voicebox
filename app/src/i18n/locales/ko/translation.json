@@ -641,7 +641,15 @@
       "exportFailed": "오디오 내보내기 실패",
       "addFailed": "생성물 추가 실패",
       "regenerateFailed": "재생성 실패",
-      "importFailed": "오디오 가져오기 실패"
+      "importFailed": "오디오 가져오기 실패",
+      "addSegmentFailed": "Failed to add segment"
+    },
+    "importScript": "Import script (.md)",
+    "chapters": {
+      "noSegments": "No segments yet — add one below or import a markdown script.",
+      "newSegment": "New segment text…",
+      "addSegment": "Add",
+      "emptyHint": "Select a chapter."
     }
   },
   "history": {
@@ -760,8 +768,13 @@
       }
     },
     "general": {
-      "docs": { "title": "문서 읽기" },
-      "discord": { "title": "Discord 참여하기", "subtitle": "도움말 & 음성 공유" },
+      "docs": {
+        "title": "문서 읽기"
+      },
+      "discord": {
+        "title": "Discord 참여하기",
+        "subtitle": "도움말 & 음성 공유"
+      },
       "serverUrl": {
         "title": "서버 URL",
         "description": "voicebox 백엔드 서버 주소입니다.",
@@ -1187,10 +1200,14 @@
     "sections": {
       "voiceGeneration": "음성 생성",
       "transcription": "변환",
-      "languageModels": "언어 모델"
+      "languageModels": "언어 모델",
+      "diarization": "Diarization",
+      "auxiliary": "Auxiliary"
     },
     "status": {
-      "loaded": "로드됨"
+      "loaded": "로드됨",
+      "cpuOnly": "CPU",
+      "needsToken": "HF token required"
     },
     "storage": {
       "location": "저장 위치",
@@ -1264,6 +1281,56 @@
       "migrationFailed": "마이그레이션 실패",
       "migrationFailedGeneric": "모델 이동에 실패했습니다",
       "migrationConnectionLost": "마이그레이션 중 연결이 끊어졌습니다"
+    },
+    "supportNote": "Compatibility: {{note}}",
+    "notSupported": "Not supported on this machine"
+  },
+  "segments": {
+    "generate": "Generate",
+    "speakerLabel": "Speaker",
+    "speakerFailed": "Failed to assign speaker",
+    "saveFailed": "Failed to save segment",
+    "unassigned": "Unassigned (story default)",
+    "assignSpeaker": "Assign speaker…",
+    "textPlaceholder": "Segment text…",
+    "status": {
+      "draft": "Draft",
+      "queued": "Queued",
+      "generating": "Generating",
+      "completed": "Completed",
+      "error": "Error"
     }
+  },
+  "chapters": {
+    "title": "Chapters",
+    "empty": "No chapters yet.",
+    "newTitle": "Chapter title…",
+    "rename": "Rename",
+    "generateAll": "Generate all segments",
+    "delete": "Delete chapter",
+    "allDone": "All segments in this chapter are already generated.",
+    "generateFailed": "Failed to generate chapter"
+  },
+  "import": {
+    "title": "Import markdown script",
+    "description": "Split your script into chapters and segments, then generate.",
+    "chooseFile": "Choose .md file",
+    "chars": "characters",
+    "splitMode": "Split mode",
+    "combine": "Combine under (chars, 0 = off)",
+    "speakUntagged": "Treat untagged text as read-aloud too",
+    "preview": "Preview segmentation",
+    "previewTitle": "{{chapters}} chapters, {{segments}} segments",
+    "commit": "Import {{count}} segments",
+    "empty": "The script is empty.",
+    "previewFailed": "Failed to preview segmentation",
+    "committed": "Script imported",
+    "commitFailed": "Failed to import script"
+  },
+  "splitModes": {
+    "h1": "By H1 (one chapter per #)",
+    "h2": "By H2 (one chapter per ##)",
+    "paragraph": "By paragraph",
+    "readAloud": "Read-aloud tags"
   }
 }

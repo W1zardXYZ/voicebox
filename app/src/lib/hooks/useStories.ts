@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import type {
+  MarkdownImportCommitRequest,
+  MarkdownImportRequest,
   StoryCreate,
   StoryItemBatchUpdate,
   StoryItemCreate,
@@ -10,6 +12,7 @@ import type {
   StoryItemTrim,
   StoryItemVersionUpdate,
   StoryItemVolumeUpdate,
+  StorySegmentUpdate,
 } from '@/lib/api/types';
 import { usePlatform } from '@/platform/PlatformContext';
 
@@ -251,5 +254,133 @@ export function useExportStoryAudio() {
 
       return blob;
     },
+  });
+}
+
+// ── Chapters / segments / markdown import (spec §4) ────────────────────────
+
+function invalidateStoryQueries(queryClient: ReturnType<typeof useQueryClient>, storyId: string) {
+  queryClient.invalidateQueries({ queryKey: ['stories'] });
+  queryClient.invalidateQueries({ queryKey: ['stories', storyId] });
+}
+
+export function useMarkdownImportPreview() {
+  return useMutation({
+    mutationFn: ({ storyId, data }: { storyId: string; data: MarkdownImportRequest }) =>
+      apiClient.importMarkdownPreview(storyId, data),
+  });
+}
+
+export function useCommitMarkdownImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, data }: { storyId: string; data: MarkdownImportCommitRequest }) =>
+      apiClient.commitMarkdownImport(storyId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useCreateChapter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, title }: { storyId: string; title: string }) =>
+      apiClient.createChapter(storyId, { title }),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useUpdateChapter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      chapterId,
+      data,
+    }: {
+      storyId: string;
+      chapterId: string;
+      data: { title?: string; order_index?: number };
+    }) => apiClient.updateChapter(storyId, chapterId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useDeleteChapter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, chapterId }: { storyId: string; chapterId: string }) =>
+      apiClient.deleteChapter(storyId, chapterId),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useCreateSegment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      data,
+    }: {
+      storyId: string;
+      data: { chapter_id: string; text: string; profile_id?: string | null };
+    }) => apiClient.createSegment(storyId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useUpdateSegment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      segmentId,
+      data,
+    }: {
+      storyId: string;
+      segmentId: string;
+      data: StorySegmentUpdate;
+    }) => apiClient.updateSegment(storyId, segmentId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useDeleteSegment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, segmentId }: { storyId: string; segmentId: string }) =>
+      apiClient.deleteSegment(storyId, segmentId),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useGenerateSegment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      segmentId,
+      profileId,
+    }: {
+      storyId: string;
+      segmentId: string;
+      profileId?: string | null;
+    }) => apiClient.generateSegment(storyId, segmentId, { profile_id: profileId }),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useGenerateManySegments() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      segmentIds,
+      profileId,
+    }: {
+      storyId: string;
+      segmentIds: string[];
+      profileId?: string | null;
+    }) => apiClient.generateManySegments(storyId, { segment_ids: segmentIds, profile_id: profileId }),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
   });
 }

@@ -12,9 +12,12 @@ logger = logging.getLogger(__name__)
 
 from . import TTSBackend, STTBackend, LANGUAGE_CODE_TO_NAME, WHISPER_HF_REPOS
 from .base import (
+    build_model_kwargs,
+    engine_device_policy,
     is_model_cached,
     get_torch_device,
     empty_device_cache,
+    load_model_to_device,
     manual_seed,
     combine_voice_prompts as _combine_voice_prompts,
     model_load_progress,
@@ -33,8 +36,8 @@ class PyTorchTTSBackend:
         self._current_model_size = None
 
     def _get_device(self) -> str:
-        """Get the best available device."""
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        """Get the best available device (MPS on Apple Silicon, CUDA/XPU/DirectML elsewhere)."""
+        return get_torch_device(**engine_device_policy("qwen"))
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""
@@ -109,16 +112,18 @@ class PyTorchTTSBackend:
                 self.model = Qwen3TTSModel.from_pretrained(
                     model_path,
                     cache_dir=tts_cache_dir,
-                    torch_dtype=torch.float32,
-                    low_cpu_mem_usage=False,
+                    **build_model_kwargs(self.device, low_cpu_mem_usage=False),
                 )
             else:
                 self.model = Qwen3TTSModel.from_pretrained(
                     model_path,
                     cache_dir=tts_cache_dir,
-                    device_map=self.device,
-                    torch_dtype=torch.bfloat16,
+                    **build_model_kwargs(self.device, torch.bfloat16, low_cpu_mem_usage=False),
                 )
+                # transformers' from_pretrained has no device= argument and a
+                # bare device string as device_map trips accelerate's GPU
+                # inference ("GPU string" errors) — move explicitly instead.
+                load_model_to_device(self.model, self.device)
 
         self._current_model_size = model_size
         self.model_size = model_size
@@ -256,7 +261,7 @@ class PyTorchSTTBackend:
 
     def _get_device(self) -> str:
         """Get the best available device."""
-        return get_torch_device(allow_xpu=True, allow_directml=True)
+        return get_torch_device(**engine_device_policy("whisper"))
 
     def is_loaded(self) -> bool:
         """Check if model is loaded."""

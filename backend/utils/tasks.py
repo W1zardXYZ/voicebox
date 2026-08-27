@@ -23,6 +23,12 @@ class GenerationTask:
     profile_id: str
     text_preview: str  # First 50 chars of text
     started_at: datetime = field(default_factory=datetime.utcnow)
+    # Live progress (spec §6): updated by run_generation around inference.
+    state: str = "queued"  # queued | loading_model | generating
+    progress: Optional[float] = None  # 0..1 while generating (chunk-level)
+    chunk_index: Optional[int] = None
+    chunk_count: Optional[int] = None
+    message: Optional[str] = None
 
 
 class TaskManager:
@@ -51,7 +57,7 @@ class TaskManager:
             self._active_downloads[model_name].error = error
     
     def start_generation(self, task_id: str, profile_id: str, text: str) -> None:
-        """Mark a generation as started."""
+        """Mark a generation as started (queued by default)."""
         text_preview = text[:50] + "..." if len(text) > 50 else text
         self._active_generations[task_id] = GenerationTask(
             task_id=task_id,
@@ -63,6 +69,53 @@ class TaskManager:
         """Mark a generation as complete."""
         if task_id in self._active_generations:
             del self._active_generations[task_id]
+    
+    def update_generation_progress(
+        self,
+        task_id: str,
+        *,
+        state: Optional[str] = None,
+        progress: Optional[float] = None,
+        chunk_index: Optional[int] = None,
+        chunk_count: Optional[int] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        """Update live progress for an active generation (spec §6.2.2).
+
+        Enqueue-only and lock-free: called from the serial generation worker
+        and read by ``GET /generate/queue`` / the status SSE — never blocking
+        TTS inference.
+        """
+        task = self._active_generations.get(task_id)
+        if task is None:
+            return
+        if state is not None:
+            task.state = state
+        if progress is not None:
+            task.progress = progress
+        if chunk_index is not None:
+            task.chunk_index = chunk_index
+        if chunk_count is not None:
+            task.chunk_count = chunk_count
+        if message is not None:
+            task.message = message
+    
+    def get_generation_progress(self, task_id: str) -> Optional[dict]:
+        """Return the live progress dict for a generation, or None."""
+        task = self._active_generations.get(task_id)
+        if task is None:
+            return None
+        return {
+            "state": task.state,
+            "progress": task.progress,
+            "chunk_index": task.chunk_index,
+            "chunk_count": task.chunk_count,
+            "message": task.message,
+        }
+    
+    def get_active_generation(self, task_id: str) -> Optional[GenerationTask]:
+        """Return the active generation task, or None."""
+        return self._active_generations.get(task_id)
     
     def get_active_downloads(self) -> List[DownloadTask]:
         """Get all active downloads."""

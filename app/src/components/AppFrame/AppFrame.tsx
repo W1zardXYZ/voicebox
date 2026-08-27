@@ -3,6 +3,7 @@ import { TitleBarDragRegion } from '@/components/TitleBarDragRegion';
 import { AudioKeepAlive } from '@/components/AudioPlayer/AudioKeepAlive';
 import { AudioPlayer } from '@/components/AudioPlayer/AudioPlayer';
 import { StoryTrackEditor } from '@/components/StoriesTab/StoryTrackEditor';
+import { GenerationQueuePanel } from '@/components/AppFrame/GenerationQueuePanel';
 import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { cn } from '@/lib/utils/cn';
 import { useStoryStore } from '@/stores/storyStore';
@@ -34,6 +35,7 @@ export function AppFrame({ children }: AppFrameProps) {
       ) : (
         <AudioPlayer />
       )}
+      <GenerationQueuePanel />
     </div>
   );
 }

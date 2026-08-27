@@ -10,6 +10,7 @@ and a model config registry that eliminates per-engine dispatch maps.
 # import time, which wraps transformers' tokenizer load against the
 # unconditional HuggingFace metadata call that otherwise raises on
 # HF_HUB_OFFLINE=1 and on network failures.
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import List, Optional, Protocol, Tuple
@@ -19,10 +20,16 @@ from typing_extensions import runtime_checkable
 
 from ..utils import hf_offline_patch
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_LLM_MAX_TOKENS = 512
 DEFAULT_LLM_TEMPERATURE = 0.7
 
 from ..utils.platform_detect import get_backend_type
+
+# Re-export the platform-compat helper so routes can import it from the
+# package root (as they do for every other backend symbol).
+from .base import engine_platform_note
 
 LANGUAGE_CODE_TO_NAME = {
     "zh": "chinese",
@@ -75,6 +82,13 @@ class ModelConfig:
     # STT engines that emit word-level timestamps (Parakeet, Whisper) can set
     # this so downstream dubbing/diarization merge knows timestamps are available.
     word_timestamps: bool = False
+    # Gated HuggingFace repos (e.g. pyannote) need an authenticated HF token
+    # (HF_TOKEN) before the download can start. Surfaced in the Models pane.
+    needs_token: bool = False
+    # Optional static human-readable note appended to the engine's platform
+    # note (e.g. license / gating hints). Engine-derived notes come from
+    # ``base.engine_platform_note`` automatically.
+    note: str | None = None
 
 
 @runtime_checkable
@@ -543,6 +557,9 @@ def _get_diarization_configs() -> list[ModelConfig]:
             model_size="3.1",
             size_mb=400,
             languages=["en"],
+            # Gated repo — requires accepting the license on HF and an
+            # authenticated HF_TOKEN to download.
+            needs_token=True,
         ),
     ]
 
@@ -664,8 +681,41 @@ def engine_has_model_sizes(engine: str) -> bool:
     return len(configs) > 1
 
 
+def _unload_other_tts_engines(keep_engine: str) -> None:
+    """Unload every loaded TTS backend except ``keep_engine``.
+
+    Voicebox keeps a single-"active engine" policy (spec §3): before loading an
+    engine's model, any other TTS engine that still has a resident model is
+    unloaded so only the active engine occupies VRAM/RAM. The user explicitly
+    allows models to be freely unloaded when not needed.
+
+    Only TTS engines in ``_tts_backends`` are considered — STT (whisper /
+    parakeet), diarization (pyannote) and LLM backends are untouched.
+    """
+    with _tts_backends_lock:
+        engines = list(_tts_backends.items())
+    for eng, backend in engines:
+        if eng == keep_engine:
+            continue
+        try:
+            if backend.is_loaded():
+                logger.info(
+                    "Unloading %s model to free memory (active engine: %s)",
+                    eng,
+                    keep_engine,
+                )
+                backend.unload_model()
+        except Exception:
+            logger.exception("Failed to unload %s model", eng)
+
+
 async def load_engine_model(engine: str, model_size: str = "default") -> None:
-    """Load a model for the given engine, handling engines with multiple model sizes."""
+    """Load a model for the given engine, handling engines with multiple model sizes.
+
+    Applies the single-active-engine policy: any other TTS engine that has a
+    loaded model is unloaded first (see :func:`_unload_other_tts_engines`).
+    """
+    _unload_other_tts_engines(engine)
     backend = get_tts_backend_for_engine(engine)
     if engine in ("qwen", "qwen_custom_voice"):
         await backend.load_model_async(model_size)

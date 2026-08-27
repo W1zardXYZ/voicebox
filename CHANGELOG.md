@@ -7,6 +7,73 @@
 
 ## [Unreleased]
 
+**The Stories release.** The Stories tab becomes an audiobook studio: import a
+markdown script, split it into chapters and segments, assign a voice to every
+segment, and generate the whole chapter through a visible queue with live
+progress. Model switching no longer trips GPU-string errors, Qwen engines can
+finally use the Apple GPU (MPS), switching engines unloads the previous engine
+so only one model occupies memory, and the Models pane now explains which
+models actually run on this machine.
+
+### Stories — chapters, segments & markdown import
+
+- **Markdown script import.** Upload a `.md` script and preview how it splits
+  into chapters and segments (by H1, by H2, by paragraph, or by read-aloud
+  tags) before anything is written. Merge micro-segments under a character
+  budget, and let `[read aloud: Narrator]`-style regions pre-assign speakers.
+- **Chapter → segment hierarchy.** New `story_chapters` / `story_segments`
+  tables (optional — legacy flat stories keep working). Segments carry their
+  own text, speaker (voice profile), engine and lifecycle status; timeline
+  clips trace back to their segment.
+- **Chapter editor.** A chapter rail on the left (rename, delete, generate
+  all), segment cards in the center with editable text, a per-segment speaker
+  dropdown and Generate button, and a text-driven status badge
+  (draft → queued → generating → completed/error).
+- **Per-segment synthesis.** Generate one segment or a whole chapter at once;
+  clips are placed sequentially on the timeline and segment status stays in
+  sync with the generation queue.
+
+### Generation queue & progress
+
+- **Visible queue.** New `GET /generate/queue` endpoint and a global queue
+  panel (available on every route) listing queued/running clips with text
+  previews, per-item progress bars, chunk counters and messages.
+- **Real progress.** `GET /generate/{id}/status` now streams `state`
+  (queued/loading_model/generating), a 0..1 `progress`, `chunk_index` /
+  `chunk_count` and a message, fed by chunk-level callbacks from the
+  chunked-TTS pipeline.
+- **Worker shutdown fix.** The serial generation worker no longer swallows its
+  own cancellation when a running job is cancelled mid-flight, so queue
+  shutdown (and test teardown) terminate cleanly.
+
+### Model switching, device handling & the Models pane
+
+- **"GPU string" bug.** Qwen engines no longer pass a bare device string
+  (`"cuda"`, `"mps"`) as `device_map` — the fix that trips accelerate's GPU
+  inference. Models now load on CPU and are moved to the device explicitly,
+  the only pattern transformers supports for MPS.
+- **Qwen on Apple GPU.** Both Qwen backends now resolve MPS on Apple Silicon
+  instead of silently falling back to CPU — the real speed lever for German
+  synthesis on a MacBook. Device kwargs are centralized in
+  `build_model_kwargs` with regression tests across every engine.
+- **One active engine.** Switching engines unloads the previously loaded TTS
+  engine so only the active model occupies VRAM/RAM (models may be freely
+  unloaded when not needed).
+- **Availability ledger.** `/models/status` now reports `engine`,
+  `supported`, `support_note` ("Runs on CPU on Apple Silicon (no Metal path)",
+  "Uses the Apple GPU (MPS)") and `needs_token` (gated repos like pyannote).
+  The Models pane renders Parakeet and pyannote (previously silently dropped),
+  shows the platform note, and badges gated models.
+
+### Timeline
+
+- **Snapping.** Clips snap to a 100 ms grid and to other clips' edges on the
+  target track when dropped, trimmed or split; all times are rounded to
+  integer milliseconds at the API boundary.
+- **Overlap resolution.** Moving a clip to a spot that would overlap another
+  clip on the same track now nudges it to the first free gap instead of
+  stacking two clips in the same lane.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Download, Music, Plus, Upload } from 'lucide-react';
+import { Download, FileText, Music, Plus, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Loader from 'react-loaders';
@@ -27,6 +27,7 @@ import { apiClient } from '@/lib/api/client';
 import { useHistory } from '@/lib/hooks/useHistory';
 import {
   useAddStoryItem,
+  useCreateSegment,
   useExportStoryAudio,
   useRemoveStoryItem,
   useReorderStoryItems,
@@ -35,6 +36,9 @@ import {
 import { useStoryPlayback } from '@/lib/hooks/useStoryPlayback';
 import { useGenerationStore } from '@/stores/generationStore';
 import { useStoryStore } from '@/stores/storyStore';
+import { ChapterList } from './ChapterList';
+import { MarkdownImportDialog } from './MarkdownImportDialog';
+import { SegmentCard } from './SegmentCard';
 import { SortableStoryChatItem } from './StoryChatItem';
 
 export function StoryContent() {
@@ -284,6 +288,37 @@ export function StoryContent() {
     );
   };
 
+  // ── Chapter/segment editor state (spec §4) ─────────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
+  const createSegment = useCreateSegment();
+  const [newSegmentText, setNewSegmentText] = useState('');
+
+  const hasChapters = (story?.chapters.length ?? 0) > 0;
+  const activeChapter =
+    story?.chapters.find((c) => c.id === activeChapterId) ??
+    story?.chapters[0] ??
+    null;
+
+  const addSegmentToChapter = () => {
+    if (!story || !activeChapter) return;
+    const text = newSegmentText.trim();
+    if (!text) return;
+    createSegment.mutate(
+      { storyId: story.id, data: { chapter_id: activeChapter.id, text } },
+      {
+        onSuccess: () => setNewSegmentText(''),
+        onError: (error) => {
+          toast({
+            title: t('storyContent.toast.addSegmentFailed'),
+            description: error instanceof Error ? error.message : String(error),
+            variant: 'destructive',
+          });
+        },
+      },
+    );
+  };
+
   if (!selectedStoryId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -445,6 +480,15 @@ export function StoryContent() {
               </div>
             </PopoverContent>
           </Popover>
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <FileText className="mr-2 h-4 w-4" />
+            {t('storyContent.importScript')}
+          </Button>
+          <MarkdownImportDialog
+            storyId={story.id}
+            open={importOpen}
+            onOpenChange={setImportOpen}
+          />
           {story.items.length > 0 && (
             <Button
               variant="outline"
@@ -465,7 +509,57 @@ export function StoryContent() {
         className="flex-1 min-h-0 overflow-y-auto space-y-3 pt-16 scroll-pt-16 relative z-0"
         style={{ paddingBottom: bottomPadding > 0 ? `${bottomPadding}px` : undefined }}
       >
-        {sortedItems.length === 0 ? (
+        {hasChapters ? (
+          /* Chapter → segment editor (spec §4.6) */
+          <div className="flex gap-4 h-full min-h-[400px]">
+            <ChapterList
+              storyId={story.id}
+              chapters={story.chapters}
+              activeChapterId={activeChapter?.id}
+              onSelect={setActiveChapterId}
+            />
+            <div className="flex-1 min-w-0 space-y-3 pb-4">
+              {activeChapter ? (
+                <>
+                  <h3 className="text-lg font-semibold">{activeChapter.title}</h3>
+                  {activeChapter.segments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground border-2 border-dashed border-muted rounded-md p-4">
+                      {t('storyContent.chapters.noSegments')}
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {activeChapter.segments.map((segment) => (
+                        <SegmentCard key={segment.id} storyId={story.id} segment={segment} />
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      value={newSegmentText}
+                      onChange={(e) => setNewSegmentText(e.target.value)}
+                      placeholder={t('storyContent.chapters.newSegment')}
+                      className="h-9 text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') addSegmentToChapter();
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      className="h-9"
+                      onClick={addSegmentToChapter}
+                      disabled={!newSegmentText.trim() || createSegment.isPending}
+                    >
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      {t('storyContent.chapters.addSegment')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t('storyContent.chapters.emptyHint')}</p>
+              )}
+            </div>
+          </div>
+        ) : sortedItems.length === 0 ? (
           <div className="text-center py-12 px-5 border-2 border-dashed border-muted rounded-md text-muted-foreground">
             <p className="text-sm">{t('storyContent.empty.title')}</p>
             <p className="text-xs mt-2">{t('storyContent.empty.hint')}</p>

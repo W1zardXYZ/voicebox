@@ -272,10 +272,58 @@ async def cancel_generation(generation_id: str, db: Session = Depends(get_db)):
     return {"message": "Generation cancellation requested"}
 
 
+@router.get("/generate/queue")
+async def get_generation_queue(db: Session = Depends(get_db)):
+    """Return the ordered generation queue with live progress (spec §6.2.1).
+
+    Running generation first, then queued jobs in FIFO order. Each entry
+    carries the generation id, profile, text preview, state, and live
+    progress (``progress`` 0..1, ``chunk_index``/``chunk_count``,
+    ``message``) read from the TaskManager.
+    """
+    from ..services.task_queue import get_queue_snapshot
+
+    task_manager = get_task_manager()
+    snapshot = get_queue_snapshot()
+
+    entries = []
+    for entry in snapshot:
+        gen_id = entry["generation_id"]
+        gen = db.query(DBGeneration).filter_by(id=gen_id).first()
+        task = task_manager.get_active_generation(gen_id)
+        progress = task_manager.get_generation_progress(gen_id)
+
+        text_preview = ""
+        if gen is not None and gen.text:
+            text_preview = gen.text[:80]
+        elif task is not None:
+            text_preview = task.text_preview
+
+        entries.append(
+            {
+                "generation_id": gen_id,
+                "profile_id": (
+                    gen.profile_id if gen is not None else (task.profile_id if task else None)
+                ),
+                "text_preview": text_preview,
+                "state": (progress or {}).get("state") or entry["state"],
+                "progress": (progress or {}).get("progress"),
+                "chunk_index": (progress or {}).get("chunk_index"),
+                "chunk_count": (progress or {}).get("chunk_count"),
+                "message": (progress or {}).get("message"),
+                "enqueued_at": task.started_at.isoformat() if task else None,
+            }
+        )
+
+    return {"items": entries}
+
+
 @router.get("/generate/{generation_id}/status")
 async def get_generation_status(generation_id: str, db: Session = Depends(get_db)):
     """SSE endpoint that streams generation status updates."""
     import json
+
+    task_manager = get_task_manager()
 
     async def event_stream():
         try:
@@ -286,6 +334,7 @@ async def get_generation_status(generation_id: str, db: Session = Depends(get_db
                     yield f"data: {json.dumps({'status': 'not_found', 'id': generation_id})}\n\n"
                     return
 
+                progress = task_manager.get_generation_progress(generation_id)
                 payload = {
                     "id": gen.id,
                     "status": gen.status or "completed",
@@ -294,6 +343,13 @@ async def get_generation_status(generation_id: str, db: Session = Depends(get_db
                     # Agent-originated sources ("mcp", "rest") skip main-window
                     # autoplay — the floating pill plays those directly.
                     "source": gen.source,
+                    # Live progress (spec §6.2.2): state, 0..1 progress and
+                    # chunk counters while the job is active.
+                    "state": (progress or {}).get("state") or None,
+                    "progress": (progress or {}).get("progress"),
+                    "chunk_index": (progress or {}).get("chunk_index"),
+                    "chunk_count": (progress or {}).get("chunk_count"),
+                    "message": (progress or {}).get("message"),
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
 
