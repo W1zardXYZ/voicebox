@@ -846,6 +846,11 @@
           "profiles": "Elenca voci",
           "history": "Generazioni passate"
         }
+      },
+      "reset": {
+        "title": "Ripristina l'app",
+        "description": "Cancella le impostazioni locali salvate e ricarica l'app. Da usare se l'interfaccia si blocca.",
+        "action": "Ripristina"
       }
     },
     "generation": {

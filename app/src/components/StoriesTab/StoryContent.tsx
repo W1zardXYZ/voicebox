@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router';
 import {
   DndContext,
   closestCenter,
@@ -213,9 +214,9 @@ function SegmentDocumentRow({
 export function StoryContent() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const setSelectedStoryId = useStoryStore((state) => state.setSelectedStoryId);
-  const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
   const activeChapterId = useStoryStore((state) => state.activeChapterId);
   const setActiveChapterId = useStoryStore((state) => state.setActiveChapterId);
   const timelineCollapsed = useStoryStore((state) => state.timelineCollapsed);
@@ -312,10 +313,8 @@ export function StoryContent() {
             size="icon"
             className="shrink-0"
             onClick={() => {
-              // Explicitly ask to view the project list; the auto-select
-              // effect is suppressed so it doesn't immediately reopen a project.
-              setSuppressAutoSelect(true);
               setSelectedStoryId(null);
+              navigate({ to: '/stories' });
             }}
             aria-label={t('storyContent.backToProjects')}
             title={t('storyContent.backToProjects')}

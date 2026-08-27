@@ -1,5 +1,6 @@
+import { useNavigate } from '@tanstack/react-router';
 import { BookOpen, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertDialog,
@@ -53,11 +54,10 @@ import { useStoryStore } from '@/stores/storyStore';
 
 export function StoryList() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { data: stories, isLoading } = useStories();
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const setSelectedStoryId = useStoryStore((state) => state.setSelectedStoryId);
-  const suppressAutoSelect = useStoryStore((state) => state.suppressAutoSelect);
-  const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
   const trackEditorHeight = useStoryStore((state) => state.trackEditorHeight);
   const { data: selectedStory } = useStory(selectedStoryId);
   const createStory = useCreateStory();
@@ -77,13 +77,10 @@ export function StoryList() {
   const [search, setSearch] = useState('');
   const { toast } = useToast();
 
-  // Auto-select the first story when the list loads with no selection.
-  // Suppressed when the user explicitly navigated back to the list.
-  useEffect(() => {
-    if (!selectedStoryId && !suppressAutoSelect && stories && stories.length > 0) {
-      setSelectedStoryId(stories[0].id);
-    }
-  }, [selectedStoryId, stories, setSelectedStoryId, suppressAutoSelect]);
+  const openStory = (storyId: string) => {
+    setSelectedStoryId(storyId);
+    navigate({ to: '/stories/$storyId', params: { storyId } });
+  };
 
   const handleCreateStory = () => {
     if (!newStoryName.trim()) {
@@ -102,11 +99,10 @@ export function StoryList() {
       },
       {
         onSuccess: (story) => {
-          setSuppressAutoSelect(false);
-          setSelectedStoryId(story.id);
           setCreateDialogOpen(false);
           setNewStoryName('');
           setNewStoryDescription('');
+          openStory(story.id);
           toast({
             title: t('stories.toast.created'),
             description: t('stories.toast.createdDescription', { name: story.name }),
@@ -179,6 +175,7 @@ export function StoryList() {
         // Clear selection if deleting the currently selected story
         if (selectedStoryId === deletingStoryId) {
           setSelectedStoryId(null);
+          navigate({ to: '/stories' });
         }
         setDeleteDialogOpen(false);
         setDeletingStoryId(null);
@@ -254,12 +251,7 @@ export function StoryList() {
                 <div key={story.id} className="relative group">
                   <button
                     type="button"
-                    onClick={() => {
-                      // Explicitly chosen from the list — re-enable auto-select
-                      // behavior for the next time we land here.
-                      setSuppressAutoSelect(false);
-                      setSelectedStoryId(story.id);
-                    }}
+                    onClick={() => openStory(story.id)}
                     aria-label={t('stories.row.ariaLabel', {
                       name: story.name,
                       count: story.item_count,

@@ -846,6 +846,11 @@
           "profiles": "聲音清單",
           "history": "歷史生成"
         }
+      },
+      "reset": {
+        "title": "重設應用程式",
+        "description": "清除已儲存的本地設定並重新載入應用程式。介面卡住時使用。",
+        "action": "重設"
       }
     },
     "generation": {

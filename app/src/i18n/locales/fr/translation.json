@@ -846,6 +846,11 @@
           "profiles": "Lister les voix",
           "history": "Générations passées"
         }
+      },
+      "reset": {
+        "title": "Réinitialiser l'application",
+        "description": "Efface les réglages locaux et recharge l'application. À utiliser si l'interface se bloque.",
+        "action": "Réinitialiser"
       }
     },
     "generation": {

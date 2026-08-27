@@ -846,6 +846,11 @@
           "profiles": "声音列表",
           "history": "历史生成"
         }
+      },
+      "reset": {
+        "title": "重置应用",
+        "description": "清除已保存的本地设置并重新加载应用。界面卡住时使用。",
+        "action": "重置"
       }
     },
     "generation": {

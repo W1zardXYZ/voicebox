@@ -846,6 +846,11 @@
           "profiles": "List voices",
           "history": "Past generations"
         }
+      },
+      "reset": {
+        "title": "Reset app",
+        "description": "Clears saved local settings and reloads the app. Use if the UI gets stuck.",
+        "action": "Reset app"
       }
     },
     "generation": {

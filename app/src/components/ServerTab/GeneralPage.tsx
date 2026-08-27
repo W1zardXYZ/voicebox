@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 import * as z from 'zod';
+import { resetApp } from '@/components/AppErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -427,6 +428,14 @@ function ApiReferenceCard({ serverUrl }: { serverUrl: string }) {
           {t('settings.general.api.viewReference')}
         </a>
       </p>
+
+      <div className="space-y-3 rounded-xl border bg-card/50 p-4">
+        <h3 className="text-sm font-semibold">{t('settings.general.reset.title')}</h3>
+        <p className="text-xs text-muted-foreground">{t('settings.general.reset.description')}</p>
+        <Button variant="outline" size="sm" onClick={() => resetApp()}>
+          {t('settings.general.reset.action')}
+        </Button>
+      </div>
     </div>
   );
 }

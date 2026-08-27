@@ -141,7 +141,16 @@ dev: _ensure-venv _ensure-sidecar
         sleep 2
     fi
 
-    trap '[ -n "$backend_pid" ] && kill "$backend_pid" 2>/dev/null; wait' EXIT
+    trap '
+      if [ -n "$backend_pid" ]; then
+        # Kill the uvicorn process group first (reloader + --reload worker),
+        # then fall back to the pid and any of its children.
+        kill -TERM -- "-$backend_pid" 2>/dev/null || kill -TERM "$backend_pid" 2>/dev/null || true
+        pkill -TERM -P "$backend_pid" 2>/dev/null || true
+      fi
+      pkill -f "uvicorn backend.main:app" 2>/dev/null || true
+      wait 2>/dev/null || true
+    ' EXIT
 
     echo "Starting Tauri desktop app..."
     cd {{ tauri_dir }} && bun run tauri dev

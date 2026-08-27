@@ -201,6 +201,21 @@ models actually run on this machine.
   streams the whole queue (per-item progress) plus one-off `done` events, so any
   number of generations can be queued and tracked at once.
 
+### URLs, project deletion & app recovery
+
+- **Per-project URLs.** Each project opens at its own slug (`/stories/:id`). The
+  list page (`/stories`) no longer auto-loads the first project — you open one
+  by clicking it (or by going directly to its URL), which also fixes the app
+  freezing when it tried to auto-fetch a project it couldn't reach.
+- **Deleting a project** from the list navigates you back to the project list.
+- **Hard reset.** An app-level error boundary shows a one-click "Reset app" if
+  the UI throws, and Settings → General has a **Reset app** action that clears
+  saved local state and reloads — so a stuck UI is always recoverable.
+- **CTRL+C now stops the backend.** `just dev`'s shutdown trap kills the whole
+  uvicorn process tree (reloader + `--reload` worker) instead of just the
+  reloader pid, so the backend no longer lingers on port 17493 after you
+  interrupt the dev server.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

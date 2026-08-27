@@ -846,6 +846,11 @@
           "profiles": "음성 목록",
           "history": "과거 생성물"
         }
+      },
+      "reset": {
+        "title": "앱 재설정",
+        "description": "저장된 로컬 설정을 지우고 앱을 다시 로드합니다. UI가 멈추면 사용하세요.",
+        "action": "재설정"
       }
     },
     "generation": {

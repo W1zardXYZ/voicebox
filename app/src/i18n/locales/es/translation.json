@@ -846,6 +846,11 @@
           "profiles": "Listar voces",
           "history": "Generaciones anteriores"
         }
+      },
+      "reset": {
+        "title": "Restablecer la aplicación",
+        "description": "Borra la configuración local guardada y recarga la app. Úsalo si la interfaz se bloquea.",
+        "action": "Restablecer"
       }
     },
     "generation": {

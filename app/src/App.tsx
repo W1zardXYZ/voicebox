@@ -1,6 +1,7 @@
 import { RouterProvider } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import voiceboxLogo from '@/assets/voicebox-logo.png';
+import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { DictateWindow } from '@/components/DictateWindow/DictateWindow';
 import ShinyText from '@/components/ShinyText';
 import { TitleBarDragRegion } from '@/components/TitleBarDragRegion';
@@ -302,7 +303,11 @@ function MainApp() {
     );
   }
 
-  return <RouterProvider router={router} />;
+  return (
+    <AppErrorBoundary>
+      <RouterProvider router={router} />
+    </AppErrorBoundary>
+  );
 }
 
 export default App;

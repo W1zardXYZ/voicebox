@@ -846,6 +846,11 @@
           "profiles": "Listar vozes",
           "history": "Gerações anteriores"
         }
+      },
+      "reset": {
+        "title": "Redefinir o aplicativo",
+        "description": "Apaga as configurações locais salvas e recarrega o app. Use se a interface travar.",
+        "action": "Redefinir"
       }
     },
     "generation": {

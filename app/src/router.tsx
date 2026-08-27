@@ -4,7 +4,9 @@ import {
   createRouter,
   Outlet,
   redirect,
+  useParams,
 } from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { AppFrame } from '@/components/AppFrame/AppFrame';
 import { CapturesTab } from '@/components/CapturesTab/CapturesTab';
 import { EffectsTab } from '@/components/EffectsTab/EffectsTab';
@@ -27,6 +29,7 @@ import { VoicesTab } from '@/components/VoicesTab/VoicesTab';
 import { useGenerationProgress } from '@/lib/hooks/useGenerationProgress';
 import { useModelDownloadToast } from '@/lib/hooks/useModelDownloadToast';
 import { MODEL_DISPLAY_NAMES, useRestoreActiveTasks } from '@/lib/hooks/useRestoreActiveTasks';
+import { useStoryStore } from '@/stores/storyStore';
 
 // Simple platform check that works in both web and Tauri
 const isMacOS = () => navigator.platform.toLowerCase().includes('mac');
@@ -100,12 +103,32 @@ const indexRoute = createRoute({
   component: MainEditor,
 });
 
-// Stories route
-const storiesRoute = createRoute({
+// Stories list route (no project selected — shows the project list).
+const storiesListRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/stories',
-  component: StoriesTab,
+  component: StoriesList,
 });
+
+// Direct-project route — a project opens at its own URL (slug by id).
+const storyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/stories/$storyId',
+  component: StoryView,
+});
+
+function StoriesList() {
+  const setSelectedStoryId = useStoryStore((s) => s.setSelectedStoryId);
+  useEffect(() => setSelectedStoryId(null), [setSelectedStoryId]);
+  return <StoriesTab />;
+}
+
+function StoryView() {
+  const { storyId } = useParams({ from: '/stories/$storyId' });
+  const setSelectedStoryId = useStoryStore((s) => s.setSelectedStoryId);
+  useEffect(() => setSelectedStoryId(storyId), [storyId, setSelectedStoryId]);
+  return <StoriesTab />;
+}
 
 // Voices route
 const voicesRoute = createRoute({
@@ -210,7 +233,8 @@ const serverRedirectRoute = createRoute({
 // Route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  storiesRoute,
+  storiesListRoute,
+  storyRoute,
   capturesRoute,
   voicesRoute,
   effectsRoute,
