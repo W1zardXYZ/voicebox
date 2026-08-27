@@ -272,6 +272,28 @@ async def cancel_generation(generation_id: str, db: Session = Depends(get_db)):
     return {"message": "Generation cancellation requested"}
 
 
+@router.post("/generate/cancel-all")
+async def cancel_all_generations(db: Session = Depends(get_db)):
+    """Cancel every queued and running generation."""
+    from ..services.task_queue import cancel_all_generations as cancel_all_jobs
+
+    task_manager = get_task_manager()
+    cancelled = cancel_all_jobs()
+    for gen_id in cancelled:
+        try:
+            task_manager.complete_generation(gen_id)
+            await history.update_generation_status(
+                generation_id=gen_id,
+                status="failed",
+                db=db,
+                error="Generation cancelled",
+            )
+        except Exception:
+            # Best-effort: the worker may have already written a terminal status.
+            pass
+    return {"cancelled": len(cancelled)}
+
+
 @router.get("/generate/queue")
 async def get_generation_queue(db: Session = Depends(get_db)):
     """Return the ordered generation queue with live progress (spec §6.2.1).

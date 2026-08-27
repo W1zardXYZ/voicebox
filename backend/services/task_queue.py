@@ -143,6 +143,19 @@ def cancel_generation(generation_id: str) -> Literal["queued", "running"] | None
     return None
 
 
+def cancel_all_generations() -> list[str]:
+    """Cancel every queued and running generation. Returns the generation ids
+    that were actively cancelled (so callers can mark them failed)."""
+    ids = list(_running_generation_tasks.keys()) + [
+        g for g in _queued_generation_order if g in _queued_generation_ids
+    ]
+    cancelled = []
+    for gen_id in ids:
+        if cancel_generation(gen_id) is not None:
+            cancelled.append(gen_id)
+    return cancelled
+
+
 def get_queue_snapshot() -> list[dict]:
     """Return an ordered snapshot of the generation queue (spec §6.2.1).
 

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useGenerationStore } from '@/stores/generationStore';
 
@@ -18,5 +18,29 @@ export function useGenerationQueue() {
       const hasItems = (query.state.data?.items.length ?? 0) > 0;
       return isGenerating || hasProgress || hasItems ? 2000 : false;
     },
+  });
+}
+
+function invalidateQueueQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['generationQueue'] });
+  queryClient.invalidateQueries({ queryKey: ['stories'] });
+  queryClient.invalidateQueries({ queryKey: ['history'] });
+}
+
+/** Cancel a single queued/running generation. */
+export function useCancelGeneration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (generationId: string) => apiClient.cancelGeneration(generationId),
+    onSuccess: () => invalidateQueueQueries(queryClient),
+  });
+}
+
+/** Cancel every queued/running generation. */
+export function useCancelAllGenerations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.cancelAllGenerations(),
+    onSuccess: () => invalidateQueueQueries(queryClient),
   });
 }

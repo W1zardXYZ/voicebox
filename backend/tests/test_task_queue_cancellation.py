@@ -52,3 +52,33 @@ async def test_cancel_running_generation_cancels_task():
 
     assert task_queue.cancel_generation("gen-running") == "running"
     await asyncio.wait_for(running_cancelled.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_generations():
+    task_queue.init_queue(force=True)
+
+    running_started = asyncio.Event()
+    running_cancelled = asyncio.Event()
+    queued_ran = asyncio.Event()
+
+    async def running_job():
+        running_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            running_cancelled.set()
+            raise
+
+    async def queued_job():
+        queued_ran.set()
+
+    task_queue.enqueue_generation("gen-r1", running_job())
+    await asyncio.wait_for(running_started.wait(), timeout=1)
+    task_queue.enqueue_generation("gen-q1", queued_job())
+
+    cancelled = task_queue.cancel_all_generations()
+    assert set(cancelled) == {"gen-r1", "gen-q1"}
+    await asyncio.wait_for(running_cancelled.wait(), timeout=1)
+    await asyncio.sleep(0.1)
+    assert not queued_ran.is_set()

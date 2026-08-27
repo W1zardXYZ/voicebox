@@ -280,6 +280,12 @@ class ApiClient {
     });
   }
 
+  async cancelAllGenerations(): Promise<{ cancelled: number }> {
+    return this.request<{ cancelled: number }>('/generate/cancel-all', {
+      method: 'POST',
+    });
+  }
+
   async regenerateGeneration(generationId: string): Promise<GenerationResponse> {
     return this.request<GenerationResponse>(`/generate/${generationId}/regenerate`, {
       method: 'POST',

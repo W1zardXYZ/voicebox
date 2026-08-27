@@ -170,6 +170,20 @@ models actually run on this machine.
   visible and the whole book plays end-to-end in order. Placement also uses the
   configured pause instead of a hardcoded 200 ms gap.
 
+### Generation queue — stop controls & collapsible panel
+
+- **Stop one or all.** Each queue row has a Stop (cancel) button, and the panel
+  header has a **Stop all** action. Backed by the existing
+  `POST /generate/{id}/cancel` plus a new `POST /generate/cancel-all` that
+  cancels every queued and running generation. Cancelled rows are marked failed.
+- **Per-item progress.** Each row shows its own progress bar and live percentage
+  (from the chunk-level progress already reported by the queue snapshot),
+  instead of leaving you guessing from an aggregate.
+- **Collapsible, app-styled panel.** The queue panel is now a rounded,
+  backdrop-blurred card matching the app's shadcn design — a compact pill when
+  collapsed (count + average %) and an expandable list with per-item progress.
+  Bottom-right, collapsible from either state.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch
