@@ -2,7 +2,7 @@
 
 import io
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -209,26 +209,36 @@ async def set_story_item_version(
 @router.get("/stories/{story_id}/export-audio")
 async def export_story_audio(
     story_id: str,
+    format: str = Query("wav", pattern="^(wav|mp3)$"),
+    scope: str = Query("all", pattern="^(all|chapters)$"),
     db: Session = Depends(get_db),
 ):
-    """Export story as single mixed audio file."""
+    """Export story as a mixed audio file (``format``=wav|mp3). Pass
+    ``scope=chapters`` to get a ZIP with one file per chapter."""
     try:
         story = db.query(database.Story).filter_by(id=story_id).first()
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
 
-        audio_bytes = await stories.export_story_audio(story_id, db)
+        audio_bytes = await stories.export_story_audio(story_id, db, fmt=format, scope=scope)
         if not audio_bytes:
             raise HTTPException(status_code=400, detail="Story has no audio items")
 
         safe_name = "".join(c for c in story.name if c.isalnum() or c in (" ", "-", "_")).strip()
         if not safe_name:
             safe_name = "story"
-        filename = f"{safe_name}.wav"
+
+        if scope == "chapters":
+            filename = f"{safe_name}-chapters.zip"
+            media_type = "application/zip"
+        else:
+            ext = "mp3" if format == "mp3" else "wav"
+            filename = f"{safe_name}.{ext}"
+            media_type = "audio/mpeg" if format == "mp3" else "audio/wav"
 
         return StreamingResponse(
             io.BytesIO(audio_bytes),
-            media_type="audio/wav",
+            media_type=media_type,
             headers={"Content-Disposition": safe_content_disposition("attachment", filename)},
         )
     except HTTPException:

@@ -1382,5 +1382,15 @@
     "dragSegment": "Drag to reorder",
     "tagged": "tagged",
     "reorderFailed": "Failed to reorder segments"
+  },
+  "exportDialog": {
+    "title": "Export audio",
+    "description": "Choose a format and whether to export the whole book or each chapter separately.",
+    "format": "Format",
+    "scope": "Scope",
+    "wholeBook": "Whole book",
+    "eachChapter": "Each chapter",
+    "chaptersHint": "Downloads one ZIP with a separate audio file per chapter.",
+    "download": "Download"
   }
 }

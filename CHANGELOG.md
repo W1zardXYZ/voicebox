@@ -146,6 +146,15 @@ models actually run on this machine.
   editor header (a `panel` toggle), giving the one-after-another workflow the
   full editor height when you don't need the arrangement view.
 
+### Stories — export dialog
+
+- **Export dialog instead of an immediate download.** The Export Audio button
+  opens a dialog to pick a format (**WAV** or **MP3**) and a scope.
+- **Whole book or per-chapter.** Scope "Whole book" downloads one mixed file;
+  scope "Each chapter" downloads a **ZIP with one audio file per chapter** (for
+  audiobook chapter splits). `GET /stories/{id}/export-audio` now accepts
+  `format` and `scope` query params and serves the right media type/filename.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

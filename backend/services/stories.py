@@ -937,146 +937,142 @@ async def set_story_item_version(
 async def export_story_audio(
     story_id: str,
     db: Session,
+    *,
+    fmt: str = "wav",
+    scope: str = "all",
 ) -> Optional[bytes]:
     """
-    Export story as single mixed audio file with timecode-based mixing.
+    Export a story's audio.
 
-    Args:
-        story_id: Story ID
-        db: Database session
-
-    Returns:
-        Audio file bytes or None if story not found
+    ``fmt`` is ``"wav"`` or ``"mp3"``. ``scope`` is ``"all"`` (one mixed file)
+    or ``"chapters"`` (a ZIP with one file per chapter — for audiobook chapter
+    splits). Returns the encoded bytes, or None if the story has no renderable
+    audio.
     """
+    import io as _io
+    import zipfile
+    import soundfile as sf
+
     story = db.query(DBStory).filter_by(id=story_id).first()
     if not story:
         return None
 
-    # Get all items ordered by start_time_ms
-    items = (
-        db.query(DBStoryItem, DBGeneration)
-        .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
-        .filter(DBStoryItem.story_id == story_id)
-        .order_by(DBStoryItem.start_time_ms)
-        .all()
-    )
+    def _load_and_mix(items) -> Optional[tuple]:
+        """Load + trim + mix a list of (StoryItem, Generation) into one waveform."""
+        audio_data = []
+        sample_rate = 24000  # Default sample rate
+        for item, generation in items:
+            resolved_audio_path = generation.audio_path
+            if getattr(item, "version_id", None):
+                from ..database import GenerationVersion as DBGenerationVersion
 
-    if not items:
-        return None
+                version = db.query(DBGenerationVersion).filter_by(id=item.version_id).first()
+                if version:
+                    resolved_audio_path = version.audio_path
 
-    # Load all audio files and calculate total duration
-    audio_data = []
-    sample_rate = 24000  # Default sample rate
+            audio_path = config.resolve_storage_path(resolved_audio_path)
+            if audio_path is None or not audio_path.exists():
+                continue
 
-    for item, generation in items:
-        # Resolve audio path: use pinned version if set, otherwise generation default
-        resolved_audio_path = generation.audio_path
-        if getattr(item, "version_id", None):
-            from ..database import GenerationVersion as DBGenerationVersion
+            try:
+                audio, sr = load_audio(str(audio_path), sample_rate=sample_rate)
+                sample_rate = sr
 
-            version = db.query(DBGenerationVersion).filter_by(id=item.version_id).first()
-            if version:
-                resolved_audio_path = version.audio_path
+                trim_start_ms = getattr(item, "trim_start_ms", 0)
+                trim_end_ms = getattr(item, "trim_end_ms", 0)
+                original_duration_ms = int(generation.duration * 1000)
+                effective_duration_ms = original_duration_ms - trim_start_ms - trim_end_ms
 
-        audio_path = config.resolve_storage_path(resolved_audio_path)
-        if audio_path is None or not audio_path.exists():
-            continue
+                trim_start_sample = int((trim_start_ms / 1000.0) * sample_rate)
+                trim_end_sample = int((trim_end_ms / 1000.0) * sample_rate)
 
-        try:
-            audio, sr = load_audio(str(audio_path), sample_rate=sample_rate)
-            sample_rate = sr  # Use actual sample rate from first file
+                if trim_end_ms > 0:
+                    trimmed_audio = (
+                        audio[trim_start_sample:-trim_end_sample] if trim_end_sample > 0 else audio[trim_start_sample:]
+                    )
+                else:
+                    trimmed_audio = audio[trim_start_sample:]
 
-            # Get trim values
-            trim_start_ms = getattr(item, "trim_start_ms", 0)
-            trim_end_ms = getattr(item, "trim_end_ms", 0)
+                volume = float(getattr(item, "volume", 1.0) or 1.0)
+                if volume != 1.0:
+                    trimmed_audio = trimmed_audio * volume
 
-            # Calculate effective duration
-            original_duration_ms = int(generation.duration * 1000)
-            effective_duration_ms = original_duration_ms - trim_start_ms - trim_end_ms
-
-            # Slice audio based on trim values
-            trim_start_sample = int((trim_start_ms / 1000.0) * sample_rate)
-            trim_end_sample = int((trim_end_ms / 1000.0) * sample_rate)
-
-            # Extract the trimmed portion
-            if trim_end_ms > 0:
-                trimmed_audio = (
-                    audio[trim_start_sample:-trim_end_sample] if trim_end_sample > 0 else audio[trim_start_sample:]
+                audio_data.append(
+                    {
+                        "audio": trimmed_audio,
+                        "start_time_ms": item.start_time_ms,
+                        "duration_ms": effective_duration_ms,
+                    }
                 )
-            else:
-                trimmed_audio = audio[trim_start_sample:]
+            except Exception:
+                continue
 
-            # Apply per-clip volume to the export mix.
-            volume = float(getattr(item, "volume", 1.0) or 1.0)
-            if volume != 1.0:
-                trimmed_audio = trimmed_audio * volume
+        if not audio_data:
+            return None
 
-            # Store audio with its timecode info
-            start_time_ms = item.start_time_ms
+        max_end_time_ms = max(
+            (data["start_time_ms"] + data["duration_ms"] for data in audio_data), default=0
+        )
+        total_samples = int((max_end_time_ms / 1000.0) * sample_rate)
+        final_audio = np.zeros(total_samples, dtype=np.float32)
 
-            audio_data.append(
-                {
-                    "audio": trimmed_audio,
-                    "start_time_ms": start_time_ms,
-                    "duration_ms": effective_duration_ms,
-                }
-            )
-        except Exception:
-            # Skip files that can't be loaded
-            continue
+        for data in audio_data:
+            audio = data["audio"]
+            start_sample = int((data["start_time_ms"] / 1000.0) * sample_rate)
+            end_sample = min(start_sample + len(audio), total_samples)
+            if start_sample < total_samples:
+                final_audio[start_sample:end_sample] += audio[: end_sample - start_sample]
 
-    if not audio_data:
+        max_val = np.abs(final_audio).max()
+        if max_val > 1.0:
+            final_audio = final_audio / max_val
+        return final_audio, sample_rate
+
+    def _encode(audio: np.ndarray, sample_rate: int) -> bytes:
+        fmt_name = fmt.upper()
+        with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            sf.write(tmp_path, audio, sample_rate, format=fmt_name)
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    def _query_items(segment_ids: Optional[list[str]] = None):
+        q = (
+            db.query(DBStoryItem, DBGeneration)
+            .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
+            .filter(DBStoryItem.story_id == story_id)
+        )
+        if segment_ids:
+            q = q.filter(DBStoryItem.story_segment_id.in_(segment_ids))
+        return q.order_by(DBStoryItem.start_time_ms).all()
+
+    if scope == "chapters":
+        chapters = _list_chapters(story_id, db)
+        buffer = _io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for chapter in chapters:
+                seg_ids = [s.id for s in chapter.segments]
+                if not seg_ids:
+                    continue
+                mixed = _load_and_mix(_query_items(seg_ids))
+                if mixed is None:
+                    continue
+                audio, sr = mixed
+                safe_title = (
+                    "".join(c for c in chapter.title if c.isalnum() or c in (" ", "-", "_")).strip()
+                    or f"chapter-{chapter.order_index + 1}"
+                )
+                zf.writestr(f"{safe_title}.{fmt}", _encode(audio, sr))
+        return buffer.getvalue()
+
+    mixed = _load_and_mix(_query_items())
+    if mixed is None:
         return None
-
-    # Calculate total duration: max(start_time_ms + duration_ms)
-    max_end_time_ms = max((data["start_time_ms"] + data["duration_ms"] for data in audio_data), default=0)
-
-    # Convert to samples
-    total_samples = int((max_end_time_ms / 1000.0) * sample_rate)
-
-    # Create output buffer initialized to zeros
-    final_audio = np.zeros(total_samples, dtype=np.float32)
-
-    # Mix each audio segment at its timecode position
-    for data in audio_data:
-        audio = data["audio"]
-        start_time_ms = data["start_time_ms"]
-
-        # Calculate start sample index
-        start_sample = int((start_time_ms / 1000.0) * sample_rate)
-
-        # Ensure we don't exceed buffer bounds
-        audio_length = len(audio)
-        end_sample = min(start_sample + audio_length, total_samples)
-
-        if start_sample < total_samples:
-            # Trim audio if it extends beyond buffer
-            audio_to_mix = audio[: end_sample - start_sample]
-
-            # Mix: add audio to existing buffer (overlapping audio will sum)
-            # Normalize to prevent clipping (simple approach: divide by max)
-            final_audio[start_sample:end_sample] += audio_to_mix
-
-    # Normalize to prevent clipping
-    max_val = np.abs(final_audio).max()
-    if max_val > 1.0:
-        final_audio = final_audio / max_val
-
-    # Save to temporary file
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        save_audio(final_audio, tmp_path, sample_rate)
-
-        # Read file bytes
-        with open(tmp_path, "rb") as f:
-            audio_bytes = f.read()
-
-        return audio_bytes
-    finally:
-        # Clean up temp file
-        Path(tmp_path).unlink(missing_ok=True)
+    audio, sr = mixed
+    return _encode(audio, sr)
 
 
 # ── Chapters / segments (spec §4) ──────────────────────────────────────────

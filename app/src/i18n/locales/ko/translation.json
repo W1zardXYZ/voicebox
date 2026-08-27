@@ -1376,5 +1376,15 @@
     "dragSegment": "Drag to reorder",
     "tagged": "tagged",
     "reorderFailed": "Failed to reorder segments"
+  },
+  "exportDialog": {
+    "title": "오디오 내보내기",
+    "description": "형식과 전체 또는 챕터별 내보내기를 선택하세요.",
+    "format": "형식",
+    "scope": "범위",
+    "wholeBook": "전체 책",
+    "eachChapter": "각 장",
+    "chaptersHint": "각 장마다 별도 오디오 파일이 담긴 ZIP을 다운로드합니다.",
+    "download": "다운로드"
   }
 }

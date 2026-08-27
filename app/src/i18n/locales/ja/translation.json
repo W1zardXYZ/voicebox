@@ -1348,5 +1348,15 @@
     "dragSegment": "Drag to reorder",
     "tagged": "tagged",
     "reorderFailed": "Failed to reorder segments"
+  },
+  "exportDialog": {
+    "title": "音声を書き出す",
+    "description": "形式と、全体または章ごとの書き出しを選択してください。",
+    "format": "形式",
+    "scope": "範囲",
+    "wholeBook": "全体",
+    "eachChapter": "各章",
+    "chaptersHint": "章ごとに別々の音声ファイルを含むZIPをダウンロードします。",
+    "download": "ダウンロード"
   }
 }

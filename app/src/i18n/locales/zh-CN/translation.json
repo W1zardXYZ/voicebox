@@ -1348,5 +1348,15 @@
     "dragSegment": "Drag to reorder",
     "tagged": "tagged",
     "reorderFailed": "Failed to reorder segments"
+  },
+  "exportDialog": {
+    "title": "导出音频",
+    "description": "选择格式以及是导出整本书还是每个章节单独导出。",
+    "format": "格式",
+    "scope": "范围",
+    "wholeBook": "整本书",
+    "eachChapter": "每个章节",
+    "chaptersHint": "下载一个 ZIP，每个章节一个独立的音频文件。",
+    "download": "下载"
   }
 }

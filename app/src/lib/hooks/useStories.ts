@@ -238,20 +238,31 @@ export function useExportStoryAudio() {
   const platform = usePlatform();
 
   return useMutation({
-    mutationFn: async ({ storyId, storyName }: { storyId: string; storyName: string }) => {
-      const blob = await apiClient.exportStoryAudio(storyId);
+    mutationFn: async ({
+      storyId,
+      storyName,
+      format = 'wav',
+      scope = 'all',
+    }: {
+      storyId: string;
+      storyName: string;
+      format?: 'wav' | 'mp3';
+      scope?: 'all' | 'chapters';
+    }) => {
+      const blob = await apiClient.exportStoryAudio(storyId, { format, scope });
 
       // Create safe filename
       const safeName = storyName
         .substring(0, 50)
         .replace(/[^a-z0-9]/gi, '-')
         .toLowerCase();
-      const filename = `${safeName || 'story'}.wav`;
+      const ext = scope === 'chapters' ? 'zip' : format === 'mp3' ? 'mp3' : 'wav';
+      const filename = `${safeName || 'story'}${scope === 'chapters' ? '-chapters' : ''}.${ext}`;
 
       await platform.filesystem.saveFile(filename, blob, [
         {
-          name: 'Audio File',
-          extensions: ['wav'],
+          name: ext.toUpperCase(),
+          extensions: [ext],
         },
       ]);
 

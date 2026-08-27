@@ -1348,5 +1348,15 @@
     "dragSegment": "Drag to reorder",
     "tagged": "tagged",
     "reorderFailed": "Failed to reorder segments"
+  },
+  "exportDialog": {
+    "title": "匯出音訊",
+    "description": "選擇格式以及是匯出整本書還是各章節單獨匯出。",
+    "format": "格式",
+    "scope": "範圍",
+    "wholeBook": "整本書",
+    "eachChapter": "各章節",
+    "chaptersHint": "下載一個 ZIP，每個章節一個獨立的音訊檔案。",
+    "download": "下載"
   }
 }

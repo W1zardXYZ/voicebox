@@ -1003,8 +1003,15 @@ class ApiClient {
     });
   }
 
-  async exportStoryAudio(storyId: string): Promise<Blob> {
-    const url = `${this.getBaseUrl()}/stories/${storyId}/export-audio`;
+  async exportStoryAudio(
+    storyId: string,
+    opts: { format?: 'wav' | 'mp3'; scope?: 'all' | 'chapters' } = {},
+  ): Promise<Blob> {
+    const params = new URLSearchParams();
+    if (opts.format) params.set('format', opts.format);
+    if (opts.scope) params.set('scope', opts.scope);
+    const qs = params.toString();
+    const url = `${this.getBaseUrl()}/stories/${storyId}/export-audio${qs ? `?${qs}` : ''}`;
     const response = await fetch(url);
 
     if (!response.ok) {

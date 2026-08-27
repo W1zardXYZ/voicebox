@@ -19,7 +19,6 @@ import type { StorySegment } from '@/lib/api/types';
 import {
   useCreateSegment,
   useDeleteSegment,
-  useExportStoryAudio,
   useGenerateManySegments,
   useGenerateSegment,
   useReorderSegments,
@@ -31,6 +30,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { cn } from '@/lib/utils/cn';
 import { ChapterList } from './ChapterList';
 import { MarkdownImportDialog } from './MarkdownImportDialog';
+import { StoryExportDialog } from './StoryExportDialog';
 import { SegmentSettingsPanel } from './SegmentSettingsPanel';
 
 const AVATAR_COLORS = [
@@ -221,11 +221,11 @@ export function StoryContent() {
   const timelineCollapsed = useStoryStore((state) => state.timelineCollapsed);
   const setTimelineCollapsed = useStoryStore((state) => state.setTimelineCollapsed);
   const { data: story, isLoading } = useStory(selectedStoryId);
-  const exportAudio = useExportStoryAudio();
   const createSegment = useCreateSegment();
   const reorderSegments = useReorderSegments();
 
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [newSegmentText, setNewSegmentText] = useState('');
   const generateMany = useGenerateManySegments();
@@ -344,12 +344,7 @@ export function StoryContent() {
             <FileText className="mr-2 h-4 w-4" />
             {t('storyContent.importScript')}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => exportAudio.mutate({ storyId: story.id, storyName: story.name })}
-            disabled={exportAudio.isPending}
-          >
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
             <Download className="mr-2 h-4 w-4" />
             {t('storyContent.exportAudio')}
           </Button>
@@ -365,6 +360,7 @@ export function StoryContent() {
         </div>
       </div>
       <MarkdownImportDialog storyId={story.id} open={importOpen} onOpenChange={setImportOpen} />
+      <StoryExportDialog story={story} open={exportOpen} onOpenChange={setExportOpen} />
 
       {/* Three-column editor */}
       <div className="flex-1 min-h-0 flex">
