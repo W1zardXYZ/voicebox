@@ -124,7 +124,10 @@ export function MarkdownImportDialog({
             segments: c.segments.map((s) => ({
               text: s.text,
               speaker_hint: s.speaker_hint,
-              tag: s.tags[0] ?? null,
+              // Persist only a real region tag (custom / read_aloud). The
+              // "untagged" marker is a parser/UI sentinel, not a real tag, so
+              // it must not tint every segment amber.
+              tag: s.tags.find((t) => t !== 'untagged') ?? null,
             })),
           })),
           narrator_name: profiles?.find((p) => p.id === narratorProfileId)?.name ?? 'Narrator',

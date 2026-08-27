@@ -651,7 +651,10 @@
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
     },
-    "backToProjects": "プロジェクトに戻る"
+    "backToProjects": "プロジェクトに戻る",
+    "toggleTimeline": "タイムライン表示切替",
+    "generateAll": "すべて生成 · 約{{minutes}}分",
+    "generateAllHint": "本のすべてのセグメントを順番にキューへ（約{{minutes}}分の見込み）"
   },
   "history": {
     "empty": "音声生成はまだありません…",
@@ -1184,7 +1187,8 @@
     "modelSize": "モデルサイズ",
     "languageLabel": "言語",
     "useDefault": "プロジェクト既定",
-    "projectDefaults": "既定のモデルと言語"
+    "projectDefaults": "既定のモデルと言語",
+    "markTagged": "注意としてマーク"
   },
   "models": {
     "title": "モデル",

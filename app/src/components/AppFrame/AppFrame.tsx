@@ -20,6 +20,7 @@ export function AppFrame({ children }: AppFrameProps) {
 
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const activeChapterId = useStoryStore((state) => state.activeChapterId);
+  const timelineCollapsed = useStoryStore((state) => state.timelineCollapsed);
   const audioUrl = usePlayerStore((state) => state.audioUrl);
   const { data: story } = useStory(selectedStoryId);
 
@@ -37,13 +38,14 @@ export function AppFrame({ children }: AppFrameProps) {
         );
 
   // Show the track editor on the stories route with a selected story that has
-  // (chapter-scoped) items — unless the user is listening to a single clip, in
-  // which case the AudioPlayer bar takes over.
+  // (chapter-scoped) items — unless the timeline is collapsed or the user is
+  // listening to a single clip, in which case the AudioPlayer bar takes over.
   const showTrackEditor =
     isStoriesRoute &&
     !!selectedStoryId &&
     !!story &&
     timelineItems.length > 0 &&
+    !timelineCollapsed &&
     !audioUrl;
 
   return (

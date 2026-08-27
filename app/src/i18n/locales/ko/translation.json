@@ -651,7 +651,10 @@
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
     },
-    "backToProjects": "프로젝트로 돌아가기"
+    "backToProjects": "프로젝트로 돌아가기",
+    "toggleTimeline": "타임라인 표시/숨기기",
+    "generateAll": "전체 생성 · 약 {{minutes}}분",
+    "generateAllHint": "책의 모든 세그먼트를 순서대로 대기열에 추가(약 {{minutes}}분 예상)"
   },
   "history": {
     "empty": "아직 생성된 음성이 없습니다…",
@@ -1212,7 +1215,8 @@
     "modelSize": "모델 크기",
     "languageLabel": "언어",
     "useDefault": "프로젝트 기본값",
-    "projectDefaults": "기본 모델 및 언어"
+    "projectDefaults": "기본 모델 및 언어",
+    "markTagged": "주의 표시"
   },
   "models": {
     "title": "모델",

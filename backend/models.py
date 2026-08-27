@@ -839,6 +839,8 @@ class StorySegmentUpdate(BaseModel):
     engine: str | None = None
     model_size: str | None = None
     language: str | None = None
+    # Manual tag override (e.g. "marked"); null clears it.
+    tag: str | None = None
     fade_in_ms: int | None = Field(None, ge=0, le=5000)
     fade_out_ms: int | None = Field(None, ge=0, le=5000)
 

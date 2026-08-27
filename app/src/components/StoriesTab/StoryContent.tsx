@@ -8,8 +8,8 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, Download, FileText, GripVertical, Headphones, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Download, FileText, GripVertical, Headphones, PanelRight, PanelRightClose, Play, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ import {
   useCreateSegment,
   useDeleteSegment,
   useExportStoryAudio,
+  useGenerateManySegments,
   useGenerateSegment,
   useReorderSegments,
   useStory,
@@ -73,7 +74,19 @@ function SegmentDocumentRow({
     id: segment.id,
   });
   const [draft, setDraft] = useState(segment.text);
-  useEffect(() => setDraft(segment.text), [segment.text]);
+  // Auto-grow the textarea so it always hugs its text — no capped row count,
+  // no inner scrollbar, no double-scroll in the document.
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useEffect(() => {
+    setDraft(segment.text);
+    resizeTextarea();
+  }, [segment.text, resizeTextarea]);
 
   const isBusy = segment.status === 'queued' || segment.status === 'generating';
   const tinted = isTagged(segment);
@@ -115,9 +128,15 @@ function SegmentDocumentRow({
 
       <div className="flex-1 min-w-0">
         <textarea
+          ref={textareaRef}
           value={draft}
-          rows={Math.max(1, Math.ceil(draft.length / 110))}
-          onChange={(e) => setDraft(e.target.value)}
+          rows={1}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const el = e.target;
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+          }}
           onFocus={onSelect}
           onBlur={() => {
             const trimmed = draft.trim();
@@ -126,7 +145,7 @@ function SegmentDocumentRow({
             }
           }}
           className={cn(
-            'w-full resize-none bg-transparent text-[15px] leading-relaxed outline-none',
+            'w-full resize-none overflow-hidden bg-transparent text-[15px] leading-relaxed outline-none',
             tinted && 'text-foreground',
           )}
           style={tinted ? { borderLeft: '2px solid hsl(38 92% 50%)', paddingLeft: 8 } : undefined}
@@ -199,6 +218,8 @@ export function StoryContent() {
   const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
   const activeChapterId = useStoryStore((state) => state.activeChapterId);
   const setActiveChapterId = useStoryStore((state) => state.setActiveChapterId);
+  const timelineCollapsed = useStoryStore((state) => state.timelineCollapsed);
+  const setTimelineCollapsed = useStoryStore((state) => state.setTimelineCollapsed);
   const { data: story, isLoading } = useStory(selectedStoryId);
   const exportAudio = useExportStoryAudio();
   const createSegment = useCreateSegment();
@@ -207,6 +228,21 @@ export function StoryContent() {
   const [importOpen, setImportOpen] = useState(false);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [newSegmentText, setNewSegmentText] = useState('');
+  const generateMany = useGenerateManySegments();
+
+  // All segments across every chapter, in reading order — drives the
+  // "Generate all" smart scheduler and its rough estimate.
+  const allSegments = useMemo(
+    () => (story?.chapters ?? []).flatMap((c) => c.segments),
+    [story],
+  );
+  const totalChars = allSegments.reduce((n, s) => n + s.text.length, 0);
+  const estMinutes = Math.max(1, Math.round(totalChars / 14 / 60)) || 1;
+
+  const handleGenerateAll = () => {
+    if (!story || allSegments.length === 0) return;
+    generateMany.mutate({ storyId: story.id, segmentIds: allSegments.map((s) => s.id) });
+  };
 
   const activeChapter =
     story?.chapters.find((c) => c.id === activeChapterId) ?? story?.chapters[0] ?? null;
@@ -294,6 +330,16 @@ export function StoryContent() {
           </div>
         </div>
         <div className="flex gap-2 items-center shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setTimelineCollapsed(!timelineCollapsed)}
+            aria-label={t('storyContent.toggleTimeline')}
+            title={t('storyContent.toggleTimeline')}
+          >
+            {timelineCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <FileText className="mr-2 h-4 w-4" />
             {t('storyContent.importScript')}
@@ -306,6 +352,15 @@ export function StoryContent() {
           >
             <Download className="mr-2 h-4 w-4" />
             {t('storyContent.exportAudio')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleGenerateAll}
+            disabled={allSegments.length === 0 || generateMany.isPending}
+            title={t('storyContent.generateAllHint', { minutes: estMinutes })}
+          >
+            <Play className="mr-2 h-4 w-4" />
+            {t('storyContent.generateAll', { minutes: estMinutes })}
           </Button>
         </div>
       </div>
@@ -322,7 +377,7 @@ export function StoryContent() {
 
         {/* Document center — text-first */}
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 overflow-y-auto py-6 px-4">
+          <div className="flex-1 min-h-0 overflow-y-auto pt-6 px-4 pb-56">
             {activeChapter ? (
               <>
                 <h3 className="text-xl font-semibold mb-4">{activeChapter.title}</h3>

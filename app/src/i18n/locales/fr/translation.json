@@ -651,7 +651,10 @@
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
     },
-    "backToProjects": "Retour aux projets"
+    "backToProjects": "Retour aux projets",
+    "toggleTimeline": "Afficher/masquer la timeline",
+    "generateAll": "Tout générer · ~{{minutes}} min",
+    "generateAllHint": "Mettre en file tous les segments du livre, dans l'ordre (~{{minutes}} min estimées)"
   },
   "history": {
     "empty": "Encore aucune génération vocale…",
@@ -1184,7 +1187,8 @@
     "modelSize": "Taille du modèle",
     "languageLabel": "Langue",
     "useDefault": "Défaut du projet",
-    "projectDefaults": "Modèle et langue par défaut"
+    "projectDefaults": "Modèle et langue par défaut",
+    "markTagged": "Marquer pour attention"
   },
   "models": {
     "title": "Modèles",

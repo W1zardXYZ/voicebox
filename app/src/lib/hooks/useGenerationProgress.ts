@@ -112,6 +112,11 @@ export function useGenerationProgress() {
             // Refetch history to pick up the completed generation
             queryClient.refetchQueries({ queryKey: ['history'] });
 
+            // Always refresh the story so its segment statuses and the
+            // chapter-scoped timeline reflect the finished clip — even for
+            // segments whose item was already placed at enqueue time.
+            queryClient.invalidateQueries({ queryKey: ['stories'] });
+
             // If this generation was queued for a story, add it now
             const storyId = removePendingStoryAdd(id);
             if (storyId) {

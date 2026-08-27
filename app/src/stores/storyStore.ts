@@ -19,6 +19,9 @@ interface StoryPlaybackState {
   // Track editor UI state
   trackEditorHeight: number;
   setTrackEditorHeight: (height: number) => void;
+  // Whether the footer timeline is hidden (the editor alone gets full height).
+  timelineCollapsed: boolean;
+  setTimelineCollapsed: (value: boolean) => void;
 
   // Playback state
   isPlaying: boolean;
@@ -55,6 +58,8 @@ export const useStoryStore = create<StoryPlaybackState>((set, get) => ({
   // Track editor UI state
   trackEditorHeight: DEFAULT_TRACK_EDITOR_HEIGHT,
   setTrackEditorHeight: (height) => set({ trackEditorHeight: height }),
+  timelineCollapsed: false,
+  setTimelineCollapsed: (value) => set({ timelineCollapsed: value }),
 
   // Playback state
   isPlaying: false,

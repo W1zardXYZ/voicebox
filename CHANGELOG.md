@@ -121,6 +121,31 @@ models actually run on this machine.
   (`story_segment_id` is now exposed on items) and filtered by the active
   chapter, so switching chapters in the rail switches the arrangement too.
 
+### Stories — editor polish & smart scheduling
+
+- **Import no longer tags every segment.** The markdown importer uses an
+  `"untagged"` marker to indicate untagged content; it was being persisted as
+  a `tag` (and tinting every segment amber). Only real region tags
+  (`custom` / `read_aloud`) are now persisted, so untagged segments stay untinted.
+- **Manual tag per segment.** The Clip tab has a "Mark for attention" toggle
+  that tints the segment amber and persists a `tag` override (cleared by
+  toggling off). New `tag` field on segment updates.
+- **Generate the whole book.** A "Generate all · ~X min" button in the header
+  enqueues every segment in every chapter in reading order; the serial worker
+  works through them one after another. The estimate is a rough total from
+  ~14 chars/sec.
+- **Timeline actually refreshes.** Segment generations now register their
+  generation on the progress stream (and story queries are invalidated on
+  every completed generation), so the chapter-scoped timeline and each
+  segment's status update live instead of going stale.
+- **Segments hug their text.** The segment textarea auto-grows to its content
+  instead of capping at a row count — no more inner scrollbar on a segment and
+  no double-scroll in the document. The document also gets generous bottom
+  padding so the last segment isn't cut off.
+- **Collapsible timeline.** The footer timeline can be opened/closed from the
+  editor header (a `panel` toggle), giving the one-after-another workflow the
+  full editor height when you don't need the arrangement view.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

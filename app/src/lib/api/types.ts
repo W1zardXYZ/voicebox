@@ -590,6 +590,7 @@ export interface StorySegmentUpdate {
   engine?: string | null;
   model_size?: string | null;
   language?: string | null;
+  tag?: string | null;
   fade_in_ms?: number;
   fade_out_ms?: number;
 }

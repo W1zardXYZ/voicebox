@@ -17,6 +17,7 @@ import type {
   StorySegmentUpdate,
 } from '@/lib/api/types';
 import { usePlatform } from '@/platform/PlatformContext';
+import { useGenerationStore } from '@/stores/generationStore';
 
 export function useStories() {
   return useQuery({
@@ -373,6 +374,7 @@ export function useSegmentVolume() {
 
 export function useGenerateSegment() {
   const queryClient = useQueryClient();
+  const addPendingGeneration = useGenerationStore((s) => s.addPendingGeneration);
   return useMutation({
     mutationFn: ({
       storyId,
@@ -383,7 +385,12 @@ export function useGenerateSegment() {
       segmentId: string;
       profileId?: string | null;
     }) => apiClient.generateSegment(storyId, segmentId, { profile_id: profileId }),
-    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+    onSuccess: (segment, variables) => {
+      // Register the generation so the progress SSE tracks it and refreshes
+      // the story/timeline once it completes.
+      if (segment?.generation_id) addPendingGeneration(segment.generation_id);
+      invalidateStoryQueries(queryClient, variables.storyId);
+    },
   });
 }
 
@@ -432,6 +439,7 @@ export function useReorderSegments() {
 
 export function useGenerateManySegments() {
   const queryClient = useQueryClient();
+  const addPendingGeneration = useGenerationStore((s) => s.addPendingGeneration);
   return useMutation({
     mutationFn: ({
       storyId,
@@ -442,6 +450,13 @@ export function useGenerateManySegments() {
       segmentIds: string[];
       profileId?: string | null;
     }) => apiClient.generateManySegments(storyId, { segment_ids: segmentIds, profile_id: profileId }),
-    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+    onSuccess: (segments, variables) => {
+      // Track every enqueued generation so the progress SSE refreshes the
+      // story/timeline as each one finishes.
+      (segments ?? []).forEach((s) => {
+        if (s?.generation_id) addPendingGeneration(s.generation_id);
+      });
+      invalidateStoryQueries(queryClient, variables.storyId);
+    },
   });
 }

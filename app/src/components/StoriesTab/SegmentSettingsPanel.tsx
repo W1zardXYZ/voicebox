@@ -106,7 +106,7 @@ export function SegmentSettingsPanel({
   const canListen = !!selectedSegment?.generation_id && selectedSegment.status === 'completed';
 
   // Per-segment override: null → fall back to the project default.
-  const commitSegmentModel = (patch: Partial<{ engine: string | null; model_size: string | null; language: string | null }>) => {
+  const commitSegmentModel = (patch: Partial<{ engine: string | null; model_size: string | null; language: string | null; tag: string | null }>) => {
     if (!selectedSegment) return;
     updateSegment.mutate(
       { storyId: story.id, segmentId: selectedSegment.id, data: patch },
@@ -251,6 +251,27 @@ export function SegmentSettingsPanel({
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Manual mark/tag — tints the segment in the editor */}
+              <label className="flex items-center justify-between gap-2 rounded border bg-card px-2 py-1.5 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      'inline-block h-2 w-2 rounded-full',
+                      selectedSegment.tag ? 'bg-amber-500' : 'bg-muted-foreground/40',
+                    )}
+                  />
+                  {t('settings.markTagged')}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={!!selectedSegment.tag}
+                  onChange={(e) =>
+                    commitSegmentModel({ tag: e.target.checked ? 'marked' : null })
+                  }
+                  className="h-4 w-4"
+                />
+              </label>
 
               <div className="space-y-1.5">
                 <Label className="text-xs">{t('segments.volume')}</Label>

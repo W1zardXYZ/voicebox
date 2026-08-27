@@ -1617,6 +1617,8 @@ async def update_segment(
         segment.model_size = payload["model_size"]
     if "language" in payload:
         segment.language = payload["language"]
+    if "tag" in payload:
+        segment.tag = payload["tag"]
     if "fade_in_ms" in payload:
         segment.fade_in_ms = payload["fade_in_ms"]
     if "fade_out_ms" in payload:

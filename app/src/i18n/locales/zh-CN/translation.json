@@ -651,7 +651,10 @@
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
     },
-    "backToProjects": "返回项目"
+    "backToProjects": "返回项目",
+    "toggleTimeline": "显示/隐藏时间线",
+    "generateAll": "生成全部 · 约{{minutes}}分钟",
+    "generateAllHint": "按顺序将整本书的所有片段加入队列（约{{minutes}}分钟）"
   },
   "history": {
     "empty": "暂无语音生成…",
@@ -1184,7 +1187,8 @@
     "modelSize": "模型大小",
     "languageLabel": "语言",
     "useDefault": "项目默认",
-    "projectDefaults": "默认模型与语言"
+    "projectDefaults": "默认模型与语言",
+    "markTagged": "标记关注"
   },
   "models": {
     "title": "模型",
