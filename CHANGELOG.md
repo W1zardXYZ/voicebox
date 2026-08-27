@@ -29,6 +29,11 @@ models actually run on this machine.
   all), segment cards in the center with editable text, a per-segment speaker
   dropdown and Generate button, and a text-driven status badge
   (draft → queued → generating → completed/error).
+- **Chapters are the default view.** Existing flat (legacy) stories are
+  auto-materialized into a "Chapter 1" of one segment per item on first open,
+  so the chapter/segment editor — not the old flat list — is what you see for
+  every story. Idempotent and non-destructive: items and generations are
+  untouched, segments are linked back to them.
 - **Per-segment synthesis.** Generate one segment or a whole chapter at once;
   clips are placed sequentially on the timeline and segment status stays in
   sync with the generation queue.

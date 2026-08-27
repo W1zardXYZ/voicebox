@@ -4,11 +4,14 @@ Story management module.
 
 from typing import List, Optional
 from datetime import datetime
+import logging
 import uuid
 import tempfile
 from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+
+logger = logging.getLogger(__name__)
 
 from .. import config
 from ..models import (
@@ -166,6 +169,12 @@ async def get_story(
     """
     Get a story with all its items.
 
+    Legacy stories (flat item lists) are auto-materialized into a single
+    chapter of one segment-per-item on first read, so the chapter/segment
+    editor is the visible experience for every story (spec §4.6). The
+    materialization is idempotent and non-destructive — existing items and
+    their generations are untouched; segments are linked back to them.
+
     Args:
         story_id: Story ID
         db: Database session
@@ -176,6 +185,8 @@ async def get_story(
     story = db.query(DBStory).filter_by(id=story_id).first()
     if not story:
         return None
+
+    _materialize_default_chapters(story_id, db)
 
     items = (
         db.query(DBStoryItem, DBGeneration, DBVoiceProfile.name.label("profile_name"))
@@ -1108,6 +1119,59 @@ def _list_chapters(story_id: str, db: Session) -> list[StoryChapterResponse]:
         .all()
     )
     return [_chapter_response(c, db) for c in chapters]
+
+
+def _materialize_default_chapters(story_id: str, db: Session) -> None:
+    """Give a legacy flat story a chapter structure so the chapter editor shows.
+
+    If a story has items but no chapters, create a single "Chapter 1" with one
+    segment per item (in timeline order), each linked to the item's existing
+    generation so nothing is re-synthesized. Idempotent — a no-op once chapters
+    exist. Non-destructive: items and generations are left untouched.
+    """
+    if db.query(DBStoryChapter).filter_by(story_id=story_id).count() > 0:
+        return
+
+    items = (
+        db.query(DBStoryItem, DBGeneration)
+        .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
+        .filter(DBStoryItem.story_id == story_id)
+        .order_by(DBStoryItem.start_time_ms)
+        .all()
+    )
+    if not items:
+        return
+
+    chapter = DBStoryChapter(
+        id=str(uuid.uuid4()),
+        story_id=story_id,
+        title="Chapter 1",
+        order_index=0,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(chapter)
+
+    for i, (item, generation) in enumerate(items):
+        db.add(
+            DBStorySegment(
+                id=str(uuid.uuid4()),
+                chapter_id=chapter.id,
+                order_index=i,
+                text=generation.text,
+                profile_id=generation.profile_id,
+                engine=generation.engine,
+                model_size=generation.model_size,
+                language=generation.language,
+                status="completed" if (generation.status or "") == "completed" else "draft",
+                generation_id=generation.id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+
+    db.commit()
+    logger.info("Materialized default chapter for story %s (%d segments)", story_id, len(items))
 
 
 def _ensure_chapter_order(db: Session, story_id: str) -> None:

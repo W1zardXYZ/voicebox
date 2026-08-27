@@ -230,3 +230,99 @@ async def test_generate_segment_requires_voice():
         db.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_get_story_materializes_chapters_for_legacy_flat_story():
+    """A legacy story (items, no chapters) gets a default chapter on first read
+    so the chapter/segment editor always appears (spec §4.6)."""
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, profile = _seed_story_and_voice(db)
+
+        gen = db_models.Generation(
+            id=str(uuid.uuid4()),
+            profile_id=profile.id,
+            text="Ein alter Satz.",
+            language="de",
+            audio_path="/tmp/x.wav",
+            duration=2.0,
+            status="completed",
+            engine="qwen",
+        )
+        db.add(gen)
+        db.add(
+            db_models.StoryItem(
+                id=str(uuid.uuid4()),
+                story_id=story.id,
+                generation_id=gen.id,
+                start_time_ms=0,
+                track=0,
+            )
+        )
+        db.commit()
+
+        detail = await stories.get_story(story.id, db)
+        assert detail.chapters, "legacy story should be materialized into a chapter"
+        chapter = detail.chapters[0]
+        assert chapter.title == "Chapter 1"
+        assert len(chapter.segments) == 1
+        seg = chapter.segments[0]
+        assert seg.text == "Ein alter Satz."
+        assert seg.generation_id == gen.id
+        assert seg.status == "completed"
+        assert seg.profile_id == profile.id
+
+        # Idempotent: a second read does not duplicate chapters.
+        detail2 = await stories.get_story(story.id, db)
+        assert len(detail2.chapters) == 1
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_materialize_skips_when_chapters_exist():
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, profile = _seed_story_and_voice(db)
+        chapter = await stories.create_chapter(
+            story.id, StoryChapterCreate(title="Bestehend"), db
+        )
+        await stories.create_segment(
+            story.id,
+            StorySegmentCreate(chapter_id=chapter.id, text="Satz."),
+            db,
+        )
+        # A story with existing chapters must not be re-materialized.
+        gen = db_models.Generation(
+            id=str(uuid.uuid4()),
+            profile_id=profile.id,
+            text="Zweiter Satz.",
+            language="de",
+            audio_path="/tmp/y.wav",
+            duration=1.0,
+            status="completed",
+        )
+        db.add(gen)
+        db.add(
+            db_models.StoryItem(
+                id=str(uuid.uuid4()),
+                story_id=story.id,
+                generation_id=gen.id,
+                start_time_ms=0,
+            )
+        )
+        db.commit()
+
+        detail = await stories.get_story(story.id, db)
+        assert [c.title for c in detail.chapters] == ["Bestehend"]
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
