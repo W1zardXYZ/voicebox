@@ -19,27 +19,18 @@ export function AppFrame({ children }: AppFrameProps) {
   const isStoriesRoute = routerState.location.pathname === '/stories';
 
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
-  const activeChapterId = useStoryStore((state) => state.activeChapterId);
   const timelineCollapsed = useStoryStore((state) => state.timelineCollapsed);
   const audioUrl = usePlayerStore((state) => state.audioUrl);
   const { data: story } = useStory(selectedStoryId);
 
-  // Scope the footer timeline to the chapter being edited: when the active
-  // chapter has segments, only show the items traced back to them. Flat
-  // (legacy) stories with no chapters keep showing every item.
-  const activeChapter =
-    story?.chapters.find((c) => c.id === activeChapterId) ?? story?.chapters[0] ?? null;
-  const activeSegmentIds = new Set(activeChapter?.segments.map((s) => s.id) ?? []);
-  const timelineItems =
-    !story || activeSegmentIds.size === 0
-      ? story?.items ?? []
-      : (story.items ?? []).filter(
-          (item) => item.story_segment_id && activeSegmentIds.has(item.story_segment_id),
-        );
+  // Show the whole book in the footer timeline (all chapters sequential), so
+  // every segment is visible and plays end-to-end. The chapter rail in the
+  // editor still drives the segment view.
+  const timelineItems = story?.items ?? [];
 
   // Show the track editor on the stories route with a selected story that has
-  // (chapter-scoped) items — unless the timeline is collapsed or the user is
-  // listening to a single clip, in which case the AudioPlayer bar takes over.
+  // items — unless the timeline is collapsed or the user is listening to a
+  // single clip, in which case the AudioPlayer bar takes over.
   const showTrackEditor =
     isStoriesRoute &&
     !!selectedStoryId &&

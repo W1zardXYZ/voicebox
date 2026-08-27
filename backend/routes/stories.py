@@ -108,6 +108,19 @@ async def update_story_item_times(
     return {"message": "Item timecodes updated successfully"}
 
 
+@router.post("/stories/{story_id}/items/relayout", response_model=models.StoryDetailResponse)
+async def relayout_story_items(
+    story_id: str,
+    db: Session = Depends(get_db),
+):
+    """Re-place every segment sequentially (chapter order, segment order) with
+    the configured pause, fixing long gaps and missing slots."""
+    story = await stories.relayout_story_items(story_id, db)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return story
+
+
 @router.put("/stories/{story_id}/items/reorder", response_model=list[models.StoryItemDetail])
 async def reorder_story_items(
     story_id: str,

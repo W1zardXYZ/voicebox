@@ -415,6 +415,7 @@ export interface StoryCreate {
   default_engine?: string | null;
   default_model_size?: string | null;
   default_language?: string | null;
+  segment_pause_ms?: number | null;
 }
 
 export interface StoryResponse {
@@ -427,6 +428,7 @@ export interface StoryResponse {
   default_engine?: string | null;
   default_model_size?: string | null;
   default_language?: string | null;
+  segment_pause_ms?: number;
 }
 
 export interface StoryItemDetail {
@@ -516,6 +518,8 @@ export interface StoryChapter {
   title: string;
   source?: string | null;
   order_index: number;
+  /** Per-chapter override for the pause between segments (null → story default). */
+  segment_pause_ms?: number | null;
   created_at: string;
   updated_at: string;
   segments: StorySegment[];
@@ -532,6 +536,8 @@ export interface StoryDetailResponse {
   default_engine?: string | null;
   default_model_size?: string | null;
   default_language?: string | null;
+  /** Pause (ms) between segments when audio is placed/played. */
+  segment_pause_ms?: number;
   /** Optional chapter → segment hierarchy (spec §4); empty for flat stories. */
   chapters: StoryChapter[];
   /** Per-project characters/speakers; narrator = first (or is_narrator). */

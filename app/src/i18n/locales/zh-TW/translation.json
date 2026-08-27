@@ -1188,7 +1188,9 @@
     "languageLabel": "語言",
     "useDefault": "專案預設",
     "projectDefaults": "預設模型與語言",
-    "markTagged": "標記關注"
+    "markTagged": "標記關注",
+    "segmentPause": "片段間停頓（毫秒）",
+    "segmentPauseHint": "在片段之間插入的停頓；將所有片段重新依序排列。"
   },
   "models": {
     "title": "模型",

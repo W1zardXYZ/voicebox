@@ -305,6 +305,41 @@ async def test_generate_segment_uses_project_default_engine_and_language(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_segment_pause_default_update_and_chapter_override():
+    """The project-wide segment pause defaults to 400 ms, is updatable, and a
+    chapter can override it."""
+    from backend.services import stories
+    from backend.models import StoryCreate
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, _profile = _seed_story_and_voice(db)
+        # New stories default to 400 ms pause.
+        assert db.refresh(story) is None or True
+        assert story.segment_pause_ms == 400
+
+        updated = await stories.update_story(
+            story.id, StoryCreate(name="Buch", segment_pause_ms=800), db
+        )
+        assert updated.segment_pause_ms == 800
+
+        ch = await stories.create_chapter(
+            story.id, StoryChapterCreate(title="K", segment_pause_ms=600), db
+        )
+        assert ch.segment_pause_ms == 600
+
+        # A chapter with no override exposes None (falls back to the story).
+        ch2 = await stories.create_chapter(
+            story.id, StoryChapterCreate(title="K2"), db
+        )
+        assert ch2.segment_pause_ms is None
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_get_story_materializes_chapters_for_legacy_flat_story():
     """A legacy story (items, no chapters) gets a default chapter on first read
     so the chapter/segment editor always appears (spec §4.6)."""

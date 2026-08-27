@@ -1024,6 +1024,12 @@ class ApiClient {
     return response.blob();
   }
 
+  async relayoutStoryItems(storyId: string): Promise<StoryDetailResponse> {
+    return this.request<StoryDetailResponse>(`/stories/${storyId}/items/relayout`, {
+      method: 'POST',
+    });
+  }
+
   // Effects & Versions
   async getAvailableEffects(): Promise<AvailableEffectsResponse> {
     return this.request<AvailableEffectsResponse>('/effects/available');

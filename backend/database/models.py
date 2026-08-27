@@ -100,6 +100,8 @@ class Story(Base):
     default_engine = Column(String, nullable=True)
     default_model_size = Column(String, nullable=True)
     default_language = Column(String, nullable=True)
+    # Pause (ms) inserted between segments when audio is placed/played.
+    segment_pause_ms = Column(Integer, nullable=False, default=400)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -120,6 +122,9 @@ class StoryChapter(Base):
     # The markdown slice this chapter was segmented from (informational).
     source = Column(Text, nullable=True)
     order_index = Column(Integer, nullable=False, default=0)
+    # Per-chapter override for the pause between segments (falls back to the
+    # story-wide segment_pause_ms).
+    segment_pause_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

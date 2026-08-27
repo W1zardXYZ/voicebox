@@ -1188,7 +1188,9 @@
     "languageLabel": "Langue",
     "useDefault": "Défaut du projet",
     "projectDefaults": "Modèle et langue par défaut",
-    "markTagged": "Marquer pour attention"
+    "markTagged": "Marquer pour attention",
+    "segmentPause": "Pause entre segments (ms)",
+    "segmentPauseHint": "Pause insérée entre les clips; replace tous les segments en séquence."
   },
   "models": {
     "title": "Modèles",

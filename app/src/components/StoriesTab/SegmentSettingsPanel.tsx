@@ -30,6 +30,7 @@ import {
   useDeleteCharacter,
   useDeleteSegment,
   useGenerateSegment,
+  useRelayoutStoryItems,
   useSegmentVolume,
   useUpdateCharacter,
   useUpdateSegment,
@@ -83,6 +84,7 @@ export function SegmentSettingsPanel({
   const deleteSegment = useDeleteSegment();
   const setVolume = useSegmentVolume();
   const updateStory = useUpdateStory();
+  const relayoutStoryItems = useRelayoutStoryItems();
   const createCharacter = useCreateCharacter();
   const updateCharacter = useUpdateCharacter();
   const deleteCharacter = useDeleteCharacter();
@@ -479,6 +481,41 @@ export function SegmentSettingsPanel({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Segment pause between clips (project-wide) */}
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-xs">{t('settings.segmentPause')}</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  step={50}
+                  defaultValue={story.segment_pause_ms ?? 400}
+                  onBlur={(e) => {
+                    const value = Math.max(0, Math.round(Number(e.target.value) || 0));
+                    updateStory.mutate(
+                      {
+                        storyId: story.id,
+                        data: {
+                          name: story.name,
+                          description: story.description,
+                          segment_pause_ms: value,
+                        },
+                      },
+                      {
+                        onError: (err) =>
+                          toast({ title: t('segments.saveFailed'), description: String(err), variant: 'destructive' }),
+                      },
+                    );
+                    relayoutStoryItems.mutate({ storyId: story.id });
+                  }}
+                  className="h-8 w-24 rounded border bg-background px-2 text-xs tabular-nums"
+                />
+                <span className="text-[10px] text-muted-foreground">ms</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{t('settings.segmentPauseHint')}</p>
             </div>
 
             <div className="pt-1">

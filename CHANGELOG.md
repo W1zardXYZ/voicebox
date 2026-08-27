@@ -155,6 +155,21 @@ models actually run on this machine.
   audiobook chapter splits). `GET /stories/{id}/export-audio` now accepts
   `format` and `scope` query params and serves the right media type/filename.
 
+### Stories — segment pause & full-book timeline
+
+- **Configurable segment pause.** New `segment_pause_ms` on a story (default
+  **400 ms**, set in the Project tab) and an optional per-chapter override.
+  It's the gap inserted between clips so every segment is followed by a
+  predictable pause instead of long/drifted ones.
+- **Re-layout button/behaviour.** Changing the pause re-places every segment
+  sequentially (chapter order, segment order) with that pause via a new
+  `POST /stories/{id}/items/relayout` endpoint — fixing long gaps and segments
+  that never got a slot in the first place.
+- **Whole-book timeline.** The footer timeline now shows the entire story (all
+  chapters sequential) instead of only the active chapter, so every segment is
+  visible and the whole book plays end-to-end in order. Placement also uses the
+  configured pause instead of a hardcoded 200 ms gap.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

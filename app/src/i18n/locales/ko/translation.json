@@ -1216,7 +1216,9 @@
     "languageLabel": "언어",
     "useDefault": "프로젝트 기본값",
     "projectDefaults": "기본 모델 및 언어",
-    "markTagged": "주의 표시"
+    "markTagged": "주의 표시",
+    "segmentPause": "세그먼트 간 멈춤(ms)",
+    "segmentPauseHint": "클립 사이에 삽입되는 멈춤. 모든 세그먼트를 순서대로 재배치합니다."
   },
   "models": {
     "title": "모델",

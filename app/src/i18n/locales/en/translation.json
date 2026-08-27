@@ -1222,7 +1222,9 @@
     "languageLabel": "Language",
     "useDefault": "Project default",
     "projectDefaults": "Default model & language",
-    "markTagged": "Mark for attention"
+    "markTagged": "Mark for attention",
+    "segmentPause": "Segment pause (ms)",
+    "segmentPauseHint": "Pause inserted between clips; re-places all segments sequentially."
   },
   "models": {
     "title": "Models",

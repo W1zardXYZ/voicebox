@@ -1188,7 +1188,9 @@
     "languageLabel": "语言",
     "useDefault": "项目默认",
     "projectDefaults": "默认模型与语言",
-    "markTagged": "标记关注"
+    "markTagged": "标记关注",
+    "segmentPause": "片段间停顿（毫秒）",
+    "segmentPauseHint": "在片段之间插入的停顿；将所有片段重新按顺序排列。"
   },
   "models": {
     "title": "模型",

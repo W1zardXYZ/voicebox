@@ -1216,7 +1216,9 @@
     "languageLabel": "Lingua",
     "useDefault": "Predefinito del progetto",
     "projectDefaults": "Modello e lingua predefiniti",
-    "markTagged": "Segna per attenzione"
+    "markTagged": "Segna per attenzione",
+    "segmentPause": "Pausa tra segmenti (ms)",
+    "segmentPauseHint": "Pausa inserita tra i clip; riposiziona tutti i segmenti in sequenza."
   },
   "models": {
     "title": "Modelli",

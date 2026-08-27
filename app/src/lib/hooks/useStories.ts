@@ -237,8 +237,7 @@ export function useSetStoryItemVersion() {
 export function useExportStoryAudio() {
   const platform = usePlatform();
 
-  return useMutation({
-    mutationFn: async ({
+  return useMutation({    mutationFn: async ({
       storyId,
       storyName,
       format = 'wav',
@@ -268,6 +267,16 @@ export function useExportStoryAudio() {
 
       return blob;
     },
+  });
+}
+
+// Re-place every segment sequentially (chapter order, segment order) with the
+// configured pause, fixing long gaps and missing slots.
+export function useRelayoutStoryItems() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId }: { storyId: string }) => apiClient.relayoutStoryItems(storyId),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
   });
 }
 

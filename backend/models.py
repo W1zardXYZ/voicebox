@@ -586,6 +586,7 @@ class StoryCreate(BaseModel):
     default_engine: str | None = Field(None, max_length=64)
     default_model_size: str | None = Field(None, max_length=64)
     default_language: str | None = Field(None, max_length=16)
+    segment_pause_ms: int | None = Field(None, ge=0, le=10000)
 
 
 class StoryResponse(BaseModel):
@@ -601,6 +602,8 @@ class StoryResponse(BaseModel):
     default_engine: str | None = None
     default_model_size: str | None = None
     default_language: str | None = None
+    # Pause (ms) between segments when audio is placed/played.
+    segment_pause_ms: int = 400
 
     class Config:
         from_attributes = True
@@ -653,6 +656,8 @@ class StoryDetailResponse(BaseModel):
     default_engine: str | None = None
     default_model_size: str | None = None
     default_language: str | None = None
+    # Pause (ms) between segments when audio is placed/played.
+    segment_pause_ms: int = 400
     # Optional chapter → segment hierarchy (spec §4); empty for legacy flat
     # stories. Forward ref: StoryChapterResponse is defined below.
     chapters: list["StoryChapterResponse"] = []
@@ -800,6 +805,8 @@ class StoryChapterResponse(BaseModel):
     title: str
     source: str | None = None
     order_index: int = 0
+    # Per-chapter override for the pause between segments (None → story default).
+    segment_pause_ms: int | None = None
     created_at: datetime
     updated_at: datetime
     segments: list[StorySegmentResponse] = []
@@ -812,6 +819,7 @@ class StoryChapterCreate(BaseModel):
     """Request model for creating a chapter."""
 
     title: str = Field(..., min_length=1, max_length=200)
+    segment_pause_ms: int | None = Field(None, ge=0, le=10000)
 
 
 class StoryChapterUpdate(BaseModel):
@@ -819,6 +827,7 @@ class StoryChapterUpdate(BaseModel):
 
     title: str | None = Field(None, min_length=1, max_length=200)
     order_index: int | None = Field(None, ge=0)
+    segment_pause_ms: int | None = Field(None, ge=0, le=10000)
 
 
 class StorySegmentCreate(BaseModel):

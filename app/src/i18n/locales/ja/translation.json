@@ -1188,7 +1188,9 @@
     "languageLabel": "言語",
     "useDefault": "プロジェクト既定",
     "projectDefaults": "既定のモデルと言語",
-    "markTagged": "注意としてマーク"
+    "markTagged": "注意としてマーク",
+    "segmentPause": "セグメント間の休止（ms）",
+    "segmentPauseHint": "クリップ間に挿入される休止。すべてのセグメントを順に再配置します。"
   },
   "models": {
     "title": "モデル",

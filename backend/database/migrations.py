@@ -250,6 +250,13 @@ def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> Non
             _add_column(engine, "stories", "default_model_size VARCHAR", "default_model_size")
         if "default_language" not in columns:
             _add_column(engine, "stories", "default_language VARCHAR", "default_language")
+        if "segment_pause_ms" not in columns:
+            _add_column(engine, "stories", "segment_pause_ms INTEGER NOT NULL DEFAULT 400", "segment_pause_ms")
+        # Per-chapter pause override.
+        if "story_chapters" in tables:
+            ch_columns = _get_columns(inspector, "story_chapters")
+            if "segment_pause_ms" not in ch_columns:
+                _add_column(engine, "story_chapters", "segment_pause_ms INTEGER", "segment_pause_ms")
 
 
 def _migrate_profiles(engine, inspector, tables: set[str]) -> None:

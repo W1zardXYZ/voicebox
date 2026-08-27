@@ -118,6 +118,7 @@ async def create_story(
         default_engine=data.default_engine,
         default_model_size=data.default_model_size,
         default_language=data.default_language,
+        segment_pause_ms=data.segment_pause_ms or 400,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -239,7 +240,14 @@ async def update_story(
     # Partial update: only apply fields the caller actually sent, so a rename
     # doesn't silently reset the project's default engine/model/language.
     payload = data.model_dump(exclude_unset=True)
-    for field in ("name", "description", "default_engine", "default_model_size", "default_language"):
+    for field in (
+        "name",
+        "description",
+        "default_engine",
+        "default_model_size",
+        "default_language",
+        "segment_pause_ms",
+    ):
         if field in payload:
             setattr(story, field, payload[field])
     story.updated_at = datetime.utcnow()
@@ -340,8 +348,8 @@ async def add_item_to_story(
                 item_end_ms = item.start_time_ms + int(gen.duration * 1000)
                 max_end_time_ms = max(max_end_time_ms, item_end_ms)
 
-            # Add 200ms gap after the last item
-            start_time_ms = max_end_time_ms + 200
+            # Add the configured segment pause after the last item.
+            start_time_ms = max_end_time_ms + _story_pause_ms(story)
 
     # Create item
     item = DBStoryItem(
@@ -1180,6 +1188,7 @@ def _chapter_response(chapter: DBStoryChapter, db: Session) -> StoryChapterRespo
         title=chapter.title,
         source=chapter.source,
         order_index=chapter.order_index,
+        segment_pause_ms=getattr(chapter, "segment_pause_ms", None),
         created_at=chapter.created_at,
         updated_at=chapter.updated_at,
         segments=[_segment_response(s, db) for s in segments],
@@ -1495,6 +1504,7 @@ async def create_chapter(
         story_id=story_id,
         title=data.title,
         order_index=next_index,
+        segment_pause_ms=getattr(data, "segment_pause_ms", None),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -1520,6 +1530,8 @@ async def update_chapter(
         chapter.title = data.title
     if data.order_index is not None:
         chapter.order_index = data.order_index
+    if "segment_pause_ms" in data.model_dump(exclude_unset=True):
+        chapter.segment_pause_ms = data.segment_pause_ms
     chapter.updated_at = datetime.utcnow()
     db.commit()
     _ensure_chapter_order(db, story_id)
@@ -1743,6 +1755,27 @@ def _estimate_duration_ms(text: str) -> int:
     return int(max(800, (len(text) / 14.0) * 1000))
 
 
+def _story_pause_ms(story: Optional[DBStory]) -> int:
+    """Project-wide pause (ms) inserted between segments."""
+    pause = getattr(story, "segment_pause_ms", None)
+    return pause if pause else 400
+
+
+def _effective_pause_for_segment(db: Session, segment_id: str) -> int:
+    """Effective pause (ms) for a segment's chapter: chapter override → story
+    default → 400ms."""
+    segment = db.query(DBStorySegment).filter_by(id=segment_id).first()
+    if segment is None:
+        return 400
+    chapter = db.query(DBStoryChapter).filter_by(id=segment.chapter_id).first()
+    if chapter is None:
+        return 400
+    if getattr(chapter, "segment_pause_ms", None):
+        return chapter.segment_pause_ms
+    story = db.query(DBStory).filter_by(id=chapter.story_id).first()
+    return _story_pause_ms(story)
+
+
 def _append_segment_story_item(
     db: Session,
     *,
@@ -1764,6 +1797,7 @@ def _append_segment_story_item(
         .filter(DBStoryItem.story_id == story_id, DBStoryItem.track == track)
         .all()
     )
+    pause_ms = _effective_pause_for_segment(db, segment_id)
     if not existing:
         start_time_ms = 0
     else:
@@ -1773,7 +1807,7 @@ def _append_segment_story_item(
             if duration_ms <= 0:
                 duration_ms = _estimate_duration_ms(gen.text)
             max_end = max(max_end, item.start_time_ms + duration_ms)
-        start_time_ms = max_end + 200
+        start_time_ms = max_end + pause_ms
 
     item = DBStoryItem(
         id=str(uuid.uuid4()),
@@ -1787,6 +1821,66 @@ def _append_segment_story_item(
     db.add(item)
     db.flush()
     return item
+
+
+async def relayout_story_items(
+    story_id: str,
+    db: Session,
+) -> Optional[dict]:
+    """Re-lay-out the story's timeline so every segment is placed sequentially
+    with the configured pause (chapter override → project default).
+
+    Fixes long/unreadable gaps and segments that failed to get a slot. Items
+    are placed reading-order: chapters in order, segments in order within each
+    chapter, with a slightly larger gap between chapters. Returns the refreshed
+    story detail.
+    """
+    story = db.query(DBStory).filter_by(id=story_id).first()
+    if not story:
+        return None
+
+    default_pause = _story_pause_ms(story)
+    chapters = _list_chapters(story_id, db)
+    chapter_pause = {c.id: (c.segment_pause_ms or default_pause) for c in chapters}
+
+    # Map each segment -> (chapter_index, chapter_id, segment_order).
+    seg_meta: dict[str, tuple[int, str, int]] = {}
+    for ci, ch in enumerate(chapters):
+        for si, seg in enumerate(ch.segments):
+            seg_meta[seg.id] = (ci, ch.id, si)
+
+    rows = (
+        db.query(DBStoryItem, DBGeneration)
+        .join(DBGeneration, DBStoryItem.generation_id == DBGeneration.id)
+        .filter(DBStoryItem.story_id == story_id)
+        .all()
+    )
+
+    def order_key(row):
+        item, _gen = row
+        meta = seg_meta.get(item.story_segment_id)
+        return (meta[0], meta[2], item.start_time_ms) if meta else (len(chapters) + 100, item.start_time_ms, 0)
+
+    rows.sort(key=order_key)
+
+    cursor = 0
+    current_chapter_idx = -1
+    chapter_gap = max(1000, default_pause * 3)
+    for item, gen in rows:
+        meta = seg_meta.get(item.story_segment_id)
+        idx = meta[0] if meta else len(chapters) + 100
+        if current_chapter_idx != -1 and idx != current_chapter_idx:
+            cursor += chapter_gap
+        current_chapter_idx = idx
+
+        duration_ms = int((gen.duration or 0) * 1000)
+        if duration_ms <= 0:
+            duration_ms = _estimate_duration_ms(gen.text)
+        item.start_time_ms = cursor
+        cursor += duration_ms + (chapter_pause.get(meta[1], default_pause) if meta else default_pause)
+
+    db.commit()
+    return await get_story(story_id, db)
 
 
 async def generate_segment(
