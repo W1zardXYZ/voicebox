@@ -353,3 +353,35 @@ def validate_and_load_reference_audio(
         return True, None, audio, sr
     except Exception as e:
         return False, f"Error validating audio: {str(e)}", None, None
+
+
+def apply_fades(
+    audio: np.ndarray,
+    sample_rate: int,
+    fade_in_ms: int = 0,
+    fade_out_ms: int = 0,
+) -> np.ndarray:
+    """Apply linear fade-in / fade-out to a mono audio array.
+
+    ``sample_rate`` is used to convert the ms durations to samples. Values are
+    clamped to the array length. A no-op when both fades are 0 (or too short to
+    span a single sample).
+    """
+    if audio.ndim != 1:
+        audio = audio.flatten()
+
+    fade_in_samples = int(min(sample_rate * fade_in_ms / 1000, len(audio) // 2))
+    fade_out_samples = int(min(sample_rate * fade_out_ms / 1000, len(audio) // 2))
+
+    if fade_in_samples <= 0 and fade_out_samples <= 0:
+        return audio
+
+    out = audio.copy()
+    if fade_in_samples > 0:
+        ramp = np.linspace(0.0, 1.0, fade_in_samples, dtype=np.float32)
+        out[:fade_in_samples] *= ramp
+    if fade_out_samples > 0:
+        ramp = np.linspace(1.0, 0.0, fade_out_samples, dtype=np.float32)
+        out[-fade_out_samples:] *= ramp
+
+    return out

@@ -182,6 +182,8 @@ def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> Non
                     language VARCHAR,
                     status VARCHAR NOT NULL DEFAULT 'draft',
                     generation_id VARCHAR,
+                    fade_in_ms INTEGER NOT NULL DEFAULT 0,
+                    fade_out_ms INTEGER NOT NULL DEFAULT 0,
                     created_at DATETIME,
                     updated_at DATETIME
                 )
@@ -191,6 +193,13 @@ def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> Non
             ))
             conn.commit()
         logger.info("Created story_segments table")
+    else:
+        # Existing installs need the fade columns back-filled.
+        columns = _get_columns(inspector, "story_segments")
+        if "fade_in_ms" not in columns:
+            _add_column(engine, "story_segments", "fade_in_ms INTEGER NOT NULL DEFAULT 0", "fade_in_ms")
+        if "fade_out_ms" not in columns:
+            _add_column(engine, "story_segments", "fade_out_ms INTEGER NOT NULL DEFAULT 0", "fade_out_ms")
 
     if "story_items" in tables:
         columns = _get_columns(inspector, "story_items")

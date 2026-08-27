@@ -353,6 +353,22 @@ export function useDeleteSegment() {
   });
 }
 
+export function useSegmentVolume() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      segmentId,
+      volume,
+    }: {
+      storyId: string;
+      segmentId: string;
+      volume: number;
+    }) => apiClient.setSegmentVolume(storyId, segmentId, volume),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
 export function useGenerateSegment() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -468,6 +468,9 @@ export interface StorySegment {
   language?: string | null;
   status: 'draft' | 'queued' | 'generating' | 'completed' | 'error';
   generation_id?: string | null;
+  fade_in_ms: number;
+  fade_out_ms: number;
+  volume: number;
   created_at: string;
   updated_at: string;
 }
@@ -542,6 +545,8 @@ export interface StorySegmentUpdate {
   engine?: string | null;
   model_size?: string | null;
   language?: string | null;
+  fade_in_ms?: number;
+  fade_out_ms?: number;
 }
 
 export interface StoryItemCreate {

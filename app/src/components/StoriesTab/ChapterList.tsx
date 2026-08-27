@@ -13,9 +13,25 @@ import {
 } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
 
+function formatMs(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Rough chapter duration from segment text (~14 chars/s). */
+function chapterDurationMs(chapter: StoryChapter): number {
+  return chapter.segments.reduce(
+    (sum, seg) => sum + Math.max(800, (seg.text.length / 14) * 1000),
+    0,
+  );
+}
+
 /**
- * Left rail listing a story's chapters (spec §4.6): title, segment count,
- * inline rename, generate-all, delete, and a "new chapter" button.
+ * Left rail listing a story's chapters (spec §4.6): title, segment count and
+ * estimated duration, inline rename, generate-all, delete, and a "new chapter"
+ * button.
  */
 export function ChapterList({
   storyId,
@@ -152,8 +168,8 @@ export function ChapterList({
                   >
                     {chapter.title}
                   </button>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {segmentCount}
+                  <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                    {segmentCount} · {formatMs(chapterDurationMs(chapter))}
                   </span>
                   <button
                     type="button"

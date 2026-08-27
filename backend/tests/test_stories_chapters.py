@@ -326,3 +326,29 @@ async def test_materialize_skips_when_chapters_exist():
         db.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_apply_fades_shapes_edges():
+    import numpy as np
+    from backend.utils.audio import apply_fades
+
+    sr = 16000
+    audio = np.ones(sr * 2, dtype=np.float32)  # 2s of constant 1.0
+    faded = apply_fades(audio, sr, fade_in_ms=500, fade_out_ms=500)
+
+    assert faded.shape == audio.shape
+    # First sample faded toward 0
+    assert faded[0] < 0.05
+    # Middle stays full
+    assert faded[sr] == pytest.approx(1.0, abs=0.05)
+    # Last sample faded toward 0
+    assert faded[-1] < 0.05
+
+
+def test_apply_fades_noop_when_zero():
+    import numpy as np
+    from backend.utils.audio import apply_fades
+
+    audio = np.ones(100, dtype=np.float32)
+    out = apply_fades(audio, 16000, 0, 0)
+    assert out is audio

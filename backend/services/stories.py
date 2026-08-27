@@ -1070,11 +1070,24 @@ async def export_story_audio(
 
 
 def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentResponse:
-    """Build a StorySegmentResponse, denormalizing the profile name."""
+    """Build a StorySegmentResponse, denormalizing the profile name and the
+    linked timeline clip's volume."""
     profile_name = None
     if segment.profile_id:
         profile = db.query(DBVoiceProfile).filter_by(id=segment.profile_id).first()
         profile_name = profile.name if profile else None
+
+    volume = 1.0
+    if segment.generation_id:
+        linked_item = (
+            db.query(DBStoryItem)
+            .filter_by(generation_id=segment.generation_id)
+            .order_by(DBStoryItem.created_at.desc())
+            .first()
+        )
+        if linked_item is not None:
+            volume = getattr(linked_item, "volume", 1.0) or 1.0
+
     return StorySegmentResponse(
         id=segment.id,
         chapter_id=segment.chapter_id,
@@ -1087,6 +1100,9 @@ def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentRespo
         language=segment.language,
         status=segment.status,
         generation_id=segment.generation_id,
+        fade_in_ms=getattr(segment, "fade_in_ms", 0),
+        fade_out_ms=getattr(segment, "fade_out_ms", 0),
+        volume=volume,
         created_at=segment.created_at,
         updated_at=segment.updated_at,
     )
@@ -1408,6 +1424,10 @@ async def update_segment(
         segment.model_size = data.model_size
     if data.language is not None:
         segment.language = data.language
+    if data.fade_in_ms is not None:
+        segment.fade_in_ms = data.fade_in_ms
+    if data.fade_out_ms is not None:
+        segment.fade_out_ms = data.fade_out_ms
     # Editing a segment invalidates any completed generation.
     if data.text is not None:
         segment.status = "draft"
@@ -1435,6 +1455,43 @@ async def delete_segment(story_id: str, segment_id: str, db: Session) -> bool:
     _ensure_segment_order(db, chapter_id)
     db.commit()
     return True
+
+
+async def set_segment_volume(
+    story_id: str,
+    segment_id: str,
+    volume: float,
+    db: Session,
+) -> Optional[StorySegmentResponse]:
+    """Set a segment's clip volume by updating its linked StoryItem.
+
+    The segment's generation is placed on the timeline as a StoryItem, so the
+    per-segment volume control updates that clip's linear gain.
+    """
+    segment = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id == segment_id,
+            DBStoryChapter.story_id == story_id,
+        )
+        .first()
+    )
+    if not segment:
+        return None
+    if segment.generation_id:
+        item = (
+            db.query(DBStoryItem)
+            .filter_by(story_id=story_id, generation_id=segment.generation_id)
+            .first()
+        )
+        if item is not None:
+            item.volume = max(0.0, min(2.0, volume))
+            db.commit()
+    segment.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(segment)
+    return _segment_response(segment, db)
 
 
 def _resolve_segment_profile(
@@ -1603,6 +1660,8 @@ async def generate_segment(
             seed=None,
             normalize=True,
             mode="generate",
+            fade_in_ms=segment.fade_in_ms if getattr(segment, "fade_in_ms", 0) else None,
+            fade_out_ms=segment.fade_out_ms if getattr(segment, "fade_out_ms", 0) else None,
         ),
     )
 
@@ -1704,6 +1763,8 @@ async def generate_many_segments(
                 seed=None,
                 normalize=True,
                 mode="generate",
+                fade_in_ms=segment.fade_in_ms if getattr(segment, "fade_in_ms", 0) else None,
+                fade_out_ms=segment.fade_out_ms if getattr(segment, "fade_out_ms", 0) else None,
             ),
         )
         db.refresh(segment)

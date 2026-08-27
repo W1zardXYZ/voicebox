@@ -42,6 +42,8 @@ async def run_generation(
     max_chunk_chars: Optional[int] = None,
     crossfade_ms: Optional[int] = None,
     version_id: Optional[str] = None,
+    fade_in_ms: Optional[int] = None,
+    fade_out_ms: Optional[int] = None,
 ) -> None:
     """Execute TTS inference and persist the result.
 
@@ -55,7 +57,7 @@ async def run_generation(
         load_engine_model,
     )
     from ..utils.chunked_tts import generate_chunked
-    from ..utils.audio import has_tts_runaway, normalize_audio, save_audio, trim_tts_output
+    from ..utils.audio import has_tts_runaway, normalize_audio, save_audio, trim_tts_output, apply_fades
 
     task_manager = get_task_manager()
     bg_db = next(get_db())
@@ -117,6 +119,10 @@ async def run_generation(
             progress_callback=_report_progress,
             **gen_kwargs,
         )
+
+        # Apply per-segment fades (spec §4.6 core controls), if any.
+        if (fade_in_ms and fade_in_ms > 0) or (fade_out_ms and fade_out_ms > 0):
+            audio = apply_fades(audio, sample_rate, fade_in_ms or 0, fade_out_ms or 0)
 
         # --- Normalize (generate and regenerate always; retry skips) -----
         if normalize or mode == "regenerate":

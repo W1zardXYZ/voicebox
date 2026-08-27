@@ -728,6 +728,9 @@ class StorySegmentResponse(BaseModel):
     language: str | None = None
     status: str = "draft"  # draft|queued|generating|completed|error
     generation_id: str | None = None
+    fade_in_ms: int = 0
+    fade_out_ms: int = 0
+    volume: float = 1.0  # linked timeline clip's linear gain
     created_at: datetime
     updated_at: datetime
 
@@ -781,6 +784,14 @@ class StorySegmentUpdate(BaseModel):
     engine: str | None = None
     model_size: str | None = None
     language: str | None = None
+    fade_in_ms: int | None = Field(None, ge=0, le=5000)
+    fade_out_ms: int | None = Field(None, ge=0, le=5000)
+
+
+class StorySegmentVolumeUpdate(BaseModel):
+    """Request model for a segment's clip volume (linear gain, 0.0–2.0)."""
+
+    volume: float = Field(..., ge=0.0, le=2.0)
 
 
 class StorySegmentGenerateRequest(BaseModel):

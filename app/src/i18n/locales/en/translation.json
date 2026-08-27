@@ -1305,7 +1305,12 @@
       "generating": "Generating",
       "completed": "Completed",
       "error": "Error"
-    }
+    },
+    "volume": "Volume",
+    "fadeIn": "Fade in",
+    "fadeOut": "Fade out",
+    "generateAll": "Generate all",
+    "perSegment": "per segment"
   },
   "chapters": {
     "title": "Chapters",

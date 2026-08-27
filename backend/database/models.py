@@ -140,6 +140,9 @@ class StorySegment(Base):
     language = Column(String, nullable=True)
     status = Column(String, nullable=False, default="draft")  # draft|queued|generating|completed|error
     generation_id = Column(String, ForeignKey("generations.id"), nullable=True)
+    # Per-segment audio fades (ms), applied when the segment is generated.
+    fade_in_ms = Column(Integer, nullable=False, default=0)
+    fade_out_ms = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

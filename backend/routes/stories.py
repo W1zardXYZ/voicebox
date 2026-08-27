@@ -342,8 +342,25 @@ async def update_story_segment(
     data: models.StorySegmentUpdate,
     db: Session = Depends(get_db),
 ):
-    """Edit a segment (text / speaker / engine)."""
+    """Edit a segment (text / speaker / engine / fades)."""
     segment = await stories.update_segment(story_id, segment_id, data, db)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return segment
+
+
+@router.put(
+    "/stories/{story_id}/segments/{segment_id}/volume",
+    response_model=models.StorySegmentResponse,
+)
+async def set_story_segment_volume(
+    story_id: str,
+    segment_id: str,
+    data: models.StorySegmentVolumeUpdate,
+    db: Session = Depends(get_db),
+):
+    """Set a segment's clip volume (updates its timeline item)."""
+    segment = await stories.set_segment_volume(story_id, segment_id, data.volume, db)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
     return segment

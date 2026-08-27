@@ -816,6 +816,17 @@ class ApiClient {
     });
   }
 
+  async setSegmentVolume(
+    storyId: string,
+    segmentId: string,
+    volume: number,
+  ): Promise<StorySegment> {
+    return this.request<StorySegment>(`/stories/${storyId}/segments/${segmentId}/volume`, {
+      method: 'PUT',
+      body: JSON.stringify({ volume }),
+    });
+  }
+
   async deleteSegment(storyId: string, segmentId: string): Promise<void> {
     await this.request<void>(`/stories/${storyId}/segments/${segmentId}`, {
       method: 'DELETE',
