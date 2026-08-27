@@ -650,7 +650,8 @@
       "newSegment": "New segment text…",
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
-    }
+    },
+    "backToProjects": "프로젝트로 돌아가기"
   },
   "history": {
     "empty": "아직 생성된 음성이 없습니다…",

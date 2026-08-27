@@ -650,7 +650,8 @@
       "newSegment": "New segment text…",
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
-    }
+    },
+    "backToProjects": "返回项目"
   },
   "history": {
     "empty": "暂无语音生成…",

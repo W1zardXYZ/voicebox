@@ -8,7 +8,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Download, FileText, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, GripVertical, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -172,6 +172,8 @@ export function StoryContent() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
+  const setSelectedStoryId = useStoryStore((state) => state.setSelectedStoryId);
+  const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
   const { data: story, isLoading } = useStory(selectedStoryId);
   const exportAudio = useExportStoryAudio();
   const createSegment = useCreateSegment();
@@ -236,11 +238,28 @@ export function StoryContent() {
     <div className="flex flex-col h-full min-h-0 overflow-hidden px-8">
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between py-3 border-b">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold truncate">{story.name}</h2>
-          {story.description && (
-            <p className="text-xs text-muted-foreground truncate">{story.description}</p>
-          )}
+        <div className="flex items-center gap-2 min-w-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            onClick={() => {
+              // Explicitly ask to view the project list; the auto-select
+              // effect is suppressed so it doesn't immediately reopen a project.
+              setSuppressAutoSelect(true);
+              setSelectedStoryId(null);
+            }}
+            aria-label={t('storyContent.backToProjects')}
+            title={t('storyContent.backToProjects')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold truncate">{story.name}</h2>
+            {story.description && (
+              <p className="text-xs text-muted-foreground truncate">{story.description}</p>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 items-center shrink-0">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>

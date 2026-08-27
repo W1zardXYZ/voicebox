@@ -56,6 +56,8 @@ export function StoryList() {
   const { data: stories, isLoading } = useStories();
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const setSelectedStoryId = useStoryStore((state) => state.setSelectedStoryId);
+  const suppressAutoSelect = useStoryStore((state) => state.suppressAutoSelect);
+  const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
   const trackEditorHeight = useStoryStore((state) => state.trackEditorHeight);
   const { data: selectedStory } = useStory(selectedStoryId);
   const createStory = useCreateStory();
@@ -75,12 +77,13 @@ export function StoryList() {
   const [search, setSearch] = useState('');
   const { toast } = useToast();
 
-  // Auto-select the first story when the list loads with no selection
+  // Auto-select the first story when the list loads with no selection.
+  // Suppressed when the user explicitly navigated back to the list.
   useEffect(() => {
-    if (!selectedStoryId && stories && stories.length > 0) {
+    if (!selectedStoryId && !suppressAutoSelect && stories && stories.length > 0) {
       setSelectedStoryId(stories[0].id);
     }
-  }, [selectedStoryId, stories, setSelectedStoryId]);
+  }, [selectedStoryId, stories, setSelectedStoryId, suppressAutoSelect]);
 
   const handleCreateStory = () => {
     if (!newStoryName.trim()) {
@@ -99,6 +102,7 @@ export function StoryList() {
       },
       {
         onSuccess: (story) => {
+          setSuppressAutoSelect(false);
           setSelectedStoryId(story.id);
           setCreateDialogOpen(false);
           setNewStoryName('');
@@ -250,7 +254,12 @@ export function StoryList() {
                 <div key={story.id} className="relative group">
                   <button
                     type="button"
-                    onClick={() => setSelectedStoryId(story.id)}
+                    onClick={() => {
+                      // Explicitly chosen from the list — re-enable auto-select
+                      // behavior for the next time we land here.
+                      setSuppressAutoSelect(false);
+                      setSelectedStoryId(story.id);
+                    }}
                     aria-label={t('stories.row.ariaLabel', {
                       name: story.name,
                       count: story.item_count,

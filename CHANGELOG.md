@@ -88,6 +88,19 @@ models actually run on this machine.
   clip on the same track now nudges it to the first free gap instead of
   stacking two clips in the same lane.
 
+### Stories — editor & navigation
+
+- **Back to projects.** The story editor header now has a back arrow that
+  returns to the project list, so you can switch or create projects again even
+  though the sidebar is hidden inside a project. A `suppressAutoSelect` intent
+  stops the list from instantly re-opening the first story and trapping you in
+  the editor.
+- **No more floating composer over the editor.** The global floating
+  "Generate speech" box no longer overlays the Stories editor. Each segment is
+  generated from its own Clip panel (Generate button), so the redundant
+  floating panel was removed from the Stories route — it still ships on the
+  home/profile route where it remains the primary way to speak a line.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

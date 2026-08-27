@@ -7,6 +7,10 @@ interface StoryPlaybackState {
   setSelectedStoryId: (id: string | null) => void;
   selectedClipId: string | null;
   setSelectedClipId: (id: string | null) => void;
+  // When the user explicitly navigates to the project list (back button),
+  // suppress the auto-select-first-story effect so the list stays visible.
+  suppressAutoSelect: boolean;
+  setSuppressAutoSelect: (value: boolean) => void;
 
   // Track editor UI state
   trackEditorHeight: number;
@@ -39,6 +43,8 @@ export const useStoryStore = create<StoryPlaybackState>((set, get) => ({
   setSelectedStoryId: (id) => set({ selectedStoryId: id }),
   selectedClipId: null,
   setSelectedClipId: (id) => set({ selectedClipId: id }),
+  suppressAutoSelect: false,
+  setSuppressAutoSelect: (value) => set({ suppressAutoSelect: value }),
 
   // Track editor UI state
   trackEditorHeight: DEFAULT_TRACK_EDITOR_HEIGHT,

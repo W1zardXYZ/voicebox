@@ -650,7 +650,8 @@
       "newSegment": "New segment text…",
       "addSegment": "Add",
       "emptyHint": "Select a chapter."
-    }
+    },
+    "backToProjects": "Volver a los proyectos"
   },
   "history": {
     "empty": "Aún no hay generaciones de voz…",
