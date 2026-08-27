@@ -26,6 +26,9 @@ import type {
   ProfileSampleResponse,
   RocmStatus,
   StoryChapter,
+  StoryCharacter,
+  StoryCharacterCreate,
+  StoryCharacterUpdate,
   StoryCreate,
   StoryDetailResponse,
   StoryItemBatchUpdate,
@@ -851,6 +854,51 @@ class ApiClient {
     return this.request<StorySegment[]>(`/stories/${storyId}/segments/generate-many`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async reorderSegments(storyId: string, segmentIds: string[]): Promise<StorySegment[]> {
+    return this.request<StorySegment[]>(`/stories/${storyId}/segments/order`, {
+      method: 'PUT',
+      body: JSON.stringify({ segment_ids: segmentIds }),
+    });
+  }
+
+  async moveSegment(
+    storyId: string,
+    segmentId: string,
+    chapterId: string,
+  ): Promise<StorySegment> {
+    return this.request<StorySegment>(`/stories/${storyId}/segments/${segmentId}/move`, {
+      method: 'PUT',
+      body: JSON.stringify({ chapter_id: chapterId }),
+    });
+  }
+
+  async createCharacter(
+    storyId: string,
+    data: StoryCharacterCreate,
+  ): Promise<StoryCharacter> {
+    return this.request<StoryCharacter>(`/stories/${storyId}/characters`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCharacter(
+    storyId: string,
+    characterId: string,
+    data: StoryCharacterUpdate,
+  ): Promise<StoryCharacter> {
+    return this.request<StoryCharacter>(`/stories/${storyId}/characters/${characterId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCharacter(storyId: string, characterId: string): Promise<void> {
+    await this.request<void>(`/stories/${storyId}/characters/${characterId}`, {
+      method: 'DELETE',
     });
   }
 

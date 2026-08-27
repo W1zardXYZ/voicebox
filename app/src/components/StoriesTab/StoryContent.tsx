@@ -1,610 +1,333 @@
 import {
-  closestCenter,
   DndContext,
-  type DragEndEvent,
-  KeyboardSensor,
+  closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
+  type DragEndEvent,
 } from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { Link } from '@tanstack/react-router';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Download, FileText, Music, Plus, Upload } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { Download, FileText, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import Loader from 'react-loaders';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from '@/components/ui/use-toast';
-import { apiClient } from '@/lib/api/client';
-import { useHistory } from '@/lib/hooks/useHistory';
+import type { StorySegment } from '@/lib/api/types';
 import {
-  useAddStoryItem,
   useCreateSegment,
+  useDeleteSegment,
   useExportStoryAudio,
-  useRemoveStoryItem,
-  useReorderStoryItems,
+  useGenerateSegment,
+  useReorderSegments,
   useStory,
+  useUpdateSegment,
 } from '@/lib/hooks/useStories';
-import { useStoryPlayback } from '@/lib/hooks/useStoryPlayback';
-import { useGenerationStore } from '@/stores/generationStore';
 import { useStoryStore } from '@/stores/storyStore';
+import { cn } from '@/lib/utils/cn';
 import { ChapterList } from './ChapterList';
 import { MarkdownImportDialog } from './MarkdownImportDialog';
-import { SegmentCard } from './SegmentCard';
-import { SortableStoryChatItem } from './StoryChatItem';
+import { SegmentSettingsPanel } from './SegmentSettingsPanel';
+
+const AVATAR_COLORS = [
+  'bg-violet-500/15 text-violet-600',
+  'bg-sky-500/15 text-sky-600',
+  'bg-amber-500/15 text-amber-600',
+  'bg-emerald-500/15 text-emerald-600',
+  'bg-rose-500/15 text-rose-600',
+  'bg-cyan-500/15 text-cyan-600',
+];
+
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+
+// Tag-marked segments (e.g. <vorlesen>) get a persistent tint.
+function isTagged(segment: StorySegment): boolean {
+  return !!segment.tag;
+}
+
+function SegmentDocumentRow({
+  storyId,
+  segment,
+  selected,
+  onSelect,
+}: {
+  storyId: string;
+  segment: StorySegment;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useTranslation();
+  const generateSegment = useGenerateSegment();
+  const deleteSegment = useDeleteSegment();
+  const updateSegment = useUpdateSegment();
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: segment.id,
+  });
+  const [draft, setDraft] = useState(segment.text);
+  useEffect(() => setDraft(segment.text), [segment.text]);
+
+  const isBusy = segment.status === 'queued' || segment.status === 'generating';
+  const tinted = isTagged(segment);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'group relative flex gap-1.5 rounded-lg px-1 py-1',
+        selected && 'bg-accent/10 ring-1 ring-accent/25',
+        isDragging && 'opacity-70 z-10',
+      )}
+    >
+      {/* Drag handle — the 2:3 dot grid, shown on hover */}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className={cn(
+          'mt-0.5 h-6 w-4 shrink-0 grid place-items-center text-muted-foreground/0 group-hover:text-muted-foreground cursor-grab active:cursor-grabbing',
+          selected && 'text-muted-foreground/60',
+        )}
+        aria-label={t('editor.dragSegment')}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      {/* Speaker avatar */}
+      <div
+        className={cn(
+          'mt-0.5 h-6 w-6 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold border',
+          avatarColor(segment.character_name || segment.character_id || 'narrator'),
+        )}
+        title={segment.character_name || t('segments.unassigned')}
+      >
+        {(segment.character_name || '?')[0]?.toUpperCase()}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <textarea
+          value={draft}
+          rows={Math.max(1, Math.ceil(draft.length / 110))}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={onSelect}
+          onBlur={() => {
+            const trimmed = draft.trim();
+            if (trimmed && trimmed !== segment.text) {
+              updateSegment.mutate({ storyId, segmentId: segment.id, data: { text: trimmed } });
+            }
+          }}
+          className={cn(
+            'w-full resize-none bg-transparent text-[15px] leading-relaxed outline-none',
+            tinted && 'text-foreground',
+          )}
+          style={tinted ? { borderLeft: '2px solid hsl(38 92% 50%)', paddingLeft: 8 } : undefined}
+        />
+        {(tinted || segment.character_name) && (
+          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+            {tinted && (
+              <span className="text-amber-500 font-medium">{t('editor.tagged')}</span>
+            )}
+            {segment.character_name && <span>{segment.character_name}</span>}
+            <span className="tabular-nums">{t(`segments.status.${segment.status}`)}</span>
+            {isBusy && <span className="text-accent">…</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Quick actions on hover */}
+      <div className="shrink-0 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          className="h-6 w-6 grid place-items-center text-muted-foreground hover:text-accent"
+          onClick={(e) => {
+            e.stopPropagation();
+            generateSegment.mutate({ storyId, segmentId: segment.id });
+          }}
+          disabled={isBusy}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="h-6 w-6 grid place-items-center text-muted-foreground hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteSegment.mutate({ storyId, segmentId: segment.id });
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function StoryContent() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const { data: story, isLoading } = useStory(selectedStoryId);
-  const removeItem = useRemoveStoryItem();
-  const reorderItems = useReorderStoryItems();
   const exportAudio = useExportStoryAudio();
-  const addStoryItem = useAddStoryItem();
-  const { toast } = useToast();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const pendingCount = useGenerationStore((s) => s.pendingGenerationIds.size);
-  const addPendingGeneration = useGenerationStore((s) => s.addPendingGeneration);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const dragDepthRef = useRef(0);
+  const createSegment = useCreateSegment();
+  const reorderSegments = useReorderSegments();
 
-  // Add generation popover state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const { data: historyData } = useHistory();
+  const [importOpen, setImportOpen] = useState(false);
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [newSegmentText, setNewSegmentText] = useState('');
 
-  // Filter generations not in story and matching search
-  const availableGenerations = useMemo(() => {
-    if (!historyData?.items || !story) return [];
-    const storyGenerationIds = new Set(story.items.map((i) => i.generation_id));
-    const query = searchQuery.toLowerCase();
-    return historyData.items.filter(
-      (gen) =>
-        gen.status === 'completed' &&
-        !storyGenerationIds.has(gen.id) &&
-        (gen.text.toLowerCase().includes(query) || gen.profile_name.toLowerCase().includes(query)),
-    );
-  }, [historyData, story, searchQuery]);
+  const activeChapter =
+    story?.chapters.find((c) => c.id === activeChapterId) ?? story?.chapters[0] ?? null;
 
-  // Get track editor height from store for dynamic padding
-  const trackEditorHeight = useStoryStore((state) => state.trackEditorHeight);
+  const sortedSegments = useMemo(() => {
+    if (!activeChapter) return [];
+    return [...activeChapter.segments].sort((a, b) => a.order_index - b.order_index);
+  }, [activeChapter]);
 
-  // Track editor is shown when story has items
-  const hasBottomBar = story && story.items.length > 0;
+  const selectedSegment =
+    sortedSegments.find((s) => s.id === selectedSegmentId) ?? sortedSegments[0] ?? null;
 
-  // Clear the floating generate box (always visible on this route) and the
-  // track editor bar when it's showing.
-  const FLOATING_BOX_CLEARANCE = 140;
-  const bottomPadding = hasBottomBar
-    ? trackEditorHeight + FLOATING_BOX_CLEARANCE
-    : FLOATING_BOX_CLEARANCE;
-
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-
-  // Playback state (for auto-scroll and item highlighting)
-  const isPlaying = useStoryStore((state) => state.isPlaying);
-  const currentTimeMs = useStoryStore((state) => state.currentTimeMs);
-  const playbackStoryId = useStoryStore((state) => state.playbackStoryId);
-
-  // Refs for auto-scrolling to playing item
-  const itemRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
-  const lastScrolledItemRef = useRef<string | null>(null);
-
-  // Use playback hook
-  useStoryPlayback(story?.items);
-
-  // Sort items by start_time_ms
-  const sortedItems = useMemo(() => {
-    if (!story?.items) return [];
-    return [...story.items].sort((a, b) => a.start_time_ms - b.start_time_ms);
-  }, [story?.items]);
-
-  // Find the currently playing item based on timecode
-  const currentlyPlayingItemId = useMemo(() => {
-    if (!isPlaying || playbackStoryId !== story?.id || !sortedItems.length) {
-      return null;
-    }
-    const playingItem = sortedItems.find((item) => {
-      const itemStart = item.start_time_ms;
-      const itemEnd = item.start_time_ms + item.duration * 1000;
-      return currentTimeMs >= itemStart && currentTimeMs < itemEnd;
-    });
-    return playingItem?.generation_id ?? null;
-  }, [isPlaying, playbackStoryId, story?.id, sortedItems, currentTimeMs]);
-
-  // Auto-scroll to the currently playing item
   useEffect(() => {
-    if (!currentlyPlayingItemId || currentlyPlayingItemId === lastScrolledItemRef.current) {
-      return;
-    }
+    if (!selectedSegmentId && sortedSegments[0]) setSelectedSegmentId(sortedSegments[0].id);
+  }, [selectedSegmentId, sortedSegments]);
 
-    const element = itemRefsMap.current.get(currentlyPlayingItemId);
-    if (element && scrollRef.current) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      lastScrolledItemRef.current = currentlyPlayingItemId;
-    }
-  }, [currentlyPlayingItemId]);
-
-  // Reset last scrolled item when playback stops
-  useEffect(() => {
-    if (!isPlaying) {
-      lastScrolledItemRef.current = null;
-    }
-  }, [isPlaying]);
-
-  const handleRegenerate = async (generationId: string) => {
-    try {
-      await apiClient.regenerateGeneration(generationId);
-      addPendingGeneration(generationId);
-    } catch (error) {
-      toast({
-        title: t('storyContent.toast.regenerateFailed'),
-        description: error instanceof Error ? error.message : String(error),
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleRemoveItem = (itemId: string) => {
-    if (!story) return;
-
-    removeItem.mutate(
-      {
-        storyId: story.id,
-        itemId,
-      },
-      {
-        onError: (error) => {
-          toast({
-            title: t('storyContent.toast.removeFailed'),
-            description: error.message,
-            variant: 'destructive',
-          });
-        },
-      },
-    );
-  };
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
-    if (!story || !over || active.id === over.id) return;
-
-    const oldIndex = sortedItems.findIndex((item) => item.generation_id === active.id);
-    const newIndex = sortedItems.findIndex((item) => item.generation_id === over.id);
-
+    if (!over || active.id === over.id || !activeChapter) return;
+    const oldIndex = sortedSegments.findIndex((s) => s.id === active.id);
+    const newIndex = sortedSegments.findIndex((s) => s.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-
-    // Calculate the new order
-    const newOrder = arrayMove(sortedItems, oldIndex, newIndex);
-    const generationIds = newOrder.map((item) => item.generation_id);
-
-    // Send reorder request to backend
-    reorderItems.mutate(
-      {
-        storyId: story.id,
-        data: { generation_ids: generationIds },
-      },
-      {
-        onError: (error) => {
-          toast({
-            title: t('storyContent.toast.reorderFailed'),
-            description: error.message,
-            variant: 'destructive',
-          });
-        },
-      },
+    const ordered = arrayMove(sortedSegments, oldIndex, newIndex);
+    reorderSegments.mutate(
+      { storyId: story!.id, segmentIds: ordered.map((s) => s.id) },
+      { onError: (e) => toast({ title: t('editor.reorderFailed'), description: String(e), variant: 'destructive' }) },
     );
   };
 
-  const handleExportAudio = () => {
-    if (!story) return;
-
-    exportAudio.mutate(
-      {
-        storyId: story.id,
-        storyName: story.name,
-      },
-      {
-        onError: (error) => {
-          toast({
-            title: t('storyContent.toast.exportFailed'),
-            description: error.message,
-            variant: 'destructive',
-          });
-        },
-      },
-    );
-  };
-
-  const handleImportAudio = async (file: File) => {
-    if (!story) return;
-    setIsImporting(true);
-    try {
-      const generation = await apiClient.importAudio(file);
-      await addStoryItem.mutateAsync({
-        storyId: story.id,
-        data: { generation_id: generation.id },
-      });
-      setIsAddOpen(false);
-    } catch (error) {
-      toast({
-        title: t('storyContent.toast.importFailed'),
-        description: error instanceof Error ? error.message : String(error),
-        variant: 'destructive',
-      });
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
-  const handleImportFiles = async (files: FileList | File[]) => {
-    for (const file of Array.from(files)) {
-      await handleImportAudio(file);
-    }
-  };
-
-  const handleAddGeneration = (generationId: string) => {
-    if (!story) return;
-
-    addStoryItem.mutate(
-      {
-        storyId: story.id,
-        data: { generation_id: generationId },
-      },
-      {
-        onSuccess: () => {
-          setIsAddOpen(false);
-          setSearchQuery('');
-        },
-        onError: (error) => {
-          toast({
-            title: t('storyContent.toast.addFailed'),
-            description: error.message,
-            variant: 'destructive',
-          });
-        },
-      },
-    );
-  };
-
-  // ── Chapter/segment editor state (spec §4) ─────────────────────────────
-  const [importOpen, setImportOpen] = useState(false);
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const createSegment = useCreateSegment();
-  const [newSegmentText, setNewSegmentText] = useState('');
-
-  const hasChapters = (story?.chapters.length ?? 0) > 0;
-  const activeChapter =
-    story?.chapters.find((c) => c.id === activeChapterId) ??
-    story?.chapters[0] ??
-    null;
-
-  const addSegmentToChapter = () => {
+  const addSegment = () => {
     if (!story || !activeChapter) return;
     const text = newSegmentText.trim();
     if (!text) return;
     createSegment.mutate(
       { storyId: story.id, data: { chapter_id: activeChapter.id, text } },
-      {
-        onSuccess: () => setNewSegmentText(''),
-        onError: (error) => {
-          toast({
-            title: t('storyContent.toast.addSegmentFailed'),
-            description: error instanceof Error ? error.message : String(error),
-            variant: 'destructive',
-          });
-        },
-      },
+      { onSuccess: () => setNewSegmentText('') },
     );
   };
 
   if (!selectedStoryId) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        <div className="text-center">
-          <p className="text-lg font-medium mb-2">{t('storyContent.selectStory.title')}</p>
-          <p className="text-sm">{t('storyContent.selectStory.hint')}</p>
-        </div>
+        <div className="text-center">{t('storyContent.selectStory.title')}</div>
       </div>
     );
   }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-muted-foreground">{t('storyContent.loading')}</div>
-      </div>
-    );
-  }
-
-  if (!story) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <div className="text-center">
-          <p className="text-lg font-medium mb-2">{t('storyContent.notFound.title')}</p>
-          <p className="text-sm">{t('storyContent.notFound.hint')}</p>
-        </div>
-      </div>
-    );
-  }
+  if (isLoading) return <div className="flex items-center justify-center h-full text-muted-foreground">{t('storyContent.loading')}</div>;
+  if (!story) return <div className="text-muted-foreground">{t('storyContent.notFound.title')}</div>;
 
   return (
-    <div
-      className="flex flex-col h-full min-h-0 relative overflow-hidden"
-      onDragEnter={(e) => {
-        if (!e.dataTransfer?.types.includes('Files')) return;
-        e.preventDefault();
-        dragDepthRef.current += 1;
-        setIsDraggingFile(true);
-      }}
-      onDragOver={(e) => {
-        if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
-      }}
-      onDragLeave={(e) => {
-        if (!e.dataTransfer?.types.includes('Files')) return;
-        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-        if (dragDepthRef.current === 0) setIsDraggingFile(false);
-      }}
-      onDrop={(e) => {
-        if (!e.dataTransfer?.files?.length) return;
-        e.preventDefault();
-        dragDepthRef.current = 0;
-        setIsDraggingFile(false);
-        handleImportFiles(e.dataTransfer.files);
-      }}
-    >
-      <input
-        ref={importInputRef}
-        type="file"
-        accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files?.length) handleImportFiles(e.target.files);
-          e.target.value = '';
-        }}
-      />
-      {isDraggingFile && (
-        <div className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center bg-accent/10 border-2 border-dashed border-accent rounded-lg m-4">
-          <div className="flex flex-col items-center gap-2 text-accent">
-            <Music className="h-8 w-8" />
-            <span className="text-sm font-medium">{t('storyContent.dropToImport')}</span>
-          </div>
-        </div>
-      )}
-      {/* Scroll Mask */}
-      <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-background to-transparent z-10 pointer-events-none" />
-
+    <div className="flex flex-col h-full min-h-0 overflow-hidden px-8">
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-1">
-        <div>
-          <h2 className="text-2xl font-bold">{story.name}</h2>
+      <div className="shrink-0 flex items-center justify-between py-3 border-b">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold truncate">{story.name}</h2>
           {story.description && (
-            <p className="text-sm text-muted-foreground mt-1">{story.description}</p>
+            <p className="text-xs text-muted-foreground truncate">{story.description}</p>
           )}
         </div>
-        <div className="flex gap-2 items-center">
-          <AnimatePresence>
-            {pendingCount > 0 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, width: 0 }}
-                animate={{ opacity: 1, scale: 1, width: 'auto' }}
-                exit={{ opacity: 0, scale: 0.9, width: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <Link
-                  to="/"
-                  className="flex items-center gap-2 h-8 pl-1.5 pr-3 rounded-full bg-card border border-border hover:bg-muted/50 transition-all duration-200 cursor-pointer"
-                >
-                  <div className="shrink-0 w-10 h-5 overflow-hidden flex items-center justify-center">
-                    <div className="scale-[0.45]">
-                      <Loader type="line-scale" active />
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {t('storyContent.generatingCount', { count: pendingCount })}
-                  </span>
-                </Link>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <Popover open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Plus className="mr-2 h-4 w-4" />
-                {t('storyContent.add')}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80 p-0" align="end">
-              <div className="p-2 border-b space-y-2">
-                <Input
-                  placeholder={t('storyContent.searchPlaceholder')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  autoFocus
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-start"
-                  onClick={() => importInputRef.current?.click()}
-                  disabled={isImporting}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  {isImporting ? t('storyContent.importing') : t('storyContent.importAudio')}
-                </Button>
-              </div>
-              <div className="max-h-60 overflow-y-auto">
-                {availableGenerations.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">
-                    {searchQuery
-                      ? t('storyContent.searchNoMatches')
-                      : t('storyContent.searchNoAvailable')}
-                  </div>
-                ) : (
-                  availableGenerations.map((gen) => (
-                    <button
-                      key={gen.id}
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b last:border-b-0"
-                      onClick={() => handleAddGeneration(gen.id)}
-                    >
-                      <div className="font-medium text-sm">{gen.profile_name}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {gen.text.length > 50 ? `${gen.text.substring(0, 50)}...` : gen.text}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+        <div className="flex gap-2 items-center shrink-0">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <FileText className="mr-2 h-4 w-4" />
             {t('storyContent.importScript')}
           </Button>
-          <MarkdownImportDialog
-            storyId={story.id}
-            open={importOpen}
-            onOpenChange={setImportOpen}
-          />
-          {story.items.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportAudio}
-              disabled={exportAudio.isPending}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {t('storyContent.exportAudio')}
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportAudio.mutate({ storyId: story.id, storyName: story.name })}
+            disabled={exportAudio.isPending}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {t('storyContent.exportAudio')}
+          </Button>
         </div>
       </div>
+      <MarkdownImportDialog storyId={story.id} open={importOpen} onOpenChange={setImportOpen} />
 
-      {/* Content */}
-      <div
-        ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto space-y-3 pt-16 scroll-pt-16 relative z-0"
-        style={{ paddingBottom: bottomPadding > 0 ? `${bottomPadding}px` : undefined }}
-      >
-        {hasChapters ? (
-          /* Chapter → segment editor (spec §4.6) */
-          <div className="flex gap-4 h-full min-h-[400px]">
-            <ChapterList
-              storyId={story.id}
-              chapters={story.chapters}
-              activeChapterId={activeChapter?.id}
-              onSelect={setActiveChapterId}
-            />
-            <div className="flex-1 min-w-0 space-y-3 pb-4">
-              {activeChapter ? (
-                <>
-                  <h3 className="text-lg font-semibold">{activeChapter.title}</h3>
-                  {activeChapter.segments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground border-2 border-dashed border-muted rounded-md p-4">
-                      {t('storyContent.chapters.noSegments')}
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {activeChapter.segments.map((segment) => (
-                        <SegmentCard key={segment.id} storyId={story.id} segment={segment} />
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <Input
-                      value={newSegmentText}
-                      onChange={(e) => setNewSegmentText(e.target.value)}
-                      placeholder={t('storyContent.chapters.newSegment')}
-                      className="h-9 text-sm"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') addSegmentToChapter();
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      className="h-9"
-                      onClick={addSegmentToChapter}
-                      disabled={!newSegmentText.trim() || createSegment.isPending}
+      {/* Three-column editor */}
+      <div className="flex-1 min-h-0 flex">
+        <ChapterList
+          storyId={story.id}
+          chapters={story.chapters}
+          activeChapterId={activeChapter?.id}
+          onSelect={setActiveChapterId}
+        />
+
+        {/* Document center — text-first */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto py-6 px-4">
+            {activeChapter ? (
+              <>
+                <h3 className="text-xl font-semibold mb-4">{activeChapter.title}</h3>
+                {sortedSegments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground border-2 border-dashed border-muted rounded-md p-4">
+                    {t('storyContent.chapters.noSegments')}
+                  </p>
+                ) : (
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext
+                      items={sortedSegments.map((s) => s.id)}
+                      strategy={verticalListSortingStrategy}
                     >
-                      <Plus className="mr-1.5 h-4 w-4" />
-                      {t('storyContent.chapters.addSegment')}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t('storyContent.chapters.emptyHint')}</p>
-              )}
-            </div>
-          </div>
-        ) : sortedItems.length === 0 ? (
-          <div className="text-center py-12 px-5 border-2 border-dashed border-muted rounded-md text-muted-foreground">
-            <p className="text-sm">{t('storyContent.empty.title')}</p>
-            <p className="text-xs mt-2">{t('storyContent.empty.hint')}</p>
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={sortedItems.map((item) => item.generation_id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-3">
-                {sortedItems.map((item, index) => (
-                  <div
-                    key={item.id}
-                    ref={(el) => {
-                      if (el) {
-                        itemRefsMap.current.set(item.generation_id, el);
-                      } else {
-                        itemRefsMap.current.delete(item.generation_id);
-                      }
+                      <div className="space-y-2">
+                        {sortedSegments.map((segment) => (
+                          <SegmentDocumentRow
+                            key={segment.id}
+                            storyId={story.id}
+                            segment={segment}
+                            selected={selectedSegment?.id === segment.id}
+                            onSelect={() => setSelectedSegmentId(segment.id)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                )}
+                <div className="flex gap-2 mt-4">
+                  <Input
+                    value={newSegmentText}
+                    onChange={(e) => setNewSegmentText(e.target.value)}
+                    placeholder={t('storyContent.chapters.newSegment')}
+                    className="h-9 text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addSegment();
                     }}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-9"
+                    onClick={addSegment}
+                    disabled={!newSegmentText.trim() || createSegment.isPending}
                   >
-                    <SortableStoryChatItem
-                      item={item}
-                      storyId={story.id}
-                      index={index}
-                      onRemove={() => handleRemoveItem(item.id)}
-                      onRegenerate={
-                        item.engine === 'import'
-                          ? undefined
-                          : () => handleRegenerate(item.generation_id)
-                      }
-                      currentTimeMs={currentTimeMs}
-                      isPlaying={isPlaying && playbackStoryId === story.id}
-                    />
-                  </div>
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    {t('storyContent.chapters.addSegment')}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('storyContent.chapters.emptyHint')}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Right settings panel */}
+        <SegmentSettingsPanel story={story} selectedSegment={selectedSegment} />
       </div>
     </div>
   );

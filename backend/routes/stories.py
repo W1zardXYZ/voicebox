@@ -366,6 +366,39 @@ async def set_story_segment_volume(
     return segment
 
 
+@router.put(
+    "/stories/{story_id}/segments/order",
+    response_model=list[models.StorySegmentResponse],
+)
+async def reorder_story_segments(
+    story_id: str,
+    data: models.StorySegmentReorder,
+    db: Session = Depends(get_db),
+):
+    """Re-number segments in document order (drag-and-drop reorder, spec)."""
+    result = await stories.reorder_segments(story_id, data.segment_ids, db)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Invalid reorder request")
+    return result
+
+
+@router.put(
+    "/stories/{story_id}/segments/{segment_id}/move",
+    response_model=models.StorySegmentResponse,
+)
+async def move_story_segment_to_chapter(
+    story_id: str,
+    segment_id: str,
+    data: models.StorySegmentMove,
+    db: Session = Depends(get_db),
+):
+    """Move a segment to another chapter."""
+    segment = await stories.move_segment(story_id, segment_id, to_chapter_id=data.chapter_id, db=db)
+    if segment is None:
+        raise HTTPException(status_code=404, detail="Segment or chapter not found")
+    return segment
+
+
 @router.delete("/stories/{story_id}/segments/{segment_id}")
 async def delete_story_segment(
     story_id: str,
@@ -413,3 +446,49 @@ async def generate_many_story_segments(
         return await stories.generate_many_segments(story_id, data, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Characters / speakers (spec: project tab) ──────────────────────────────
+
+
+@router.post("/stories/{story_id}/characters", response_model=models.StoryCharacterResponse)
+async def create_story_character(
+    story_id: str,
+    data: models.StoryCharacterCreate,
+    db: Session = Depends(get_db),
+):
+    """Add a named character (speaker) to a project."""
+    character = await stories.create_character(story_id, data, db)
+    if character is None:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return character
+
+
+@router.put(
+    "/stories/{story_id}/characters/{character_id}",
+    response_model=models.StoryCharacterResponse,
+)
+async def update_story_character(
+    story_id: str,
+    character_id: str,
+    data: models.StoryCharacterUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update a character's name / voice / narrator flag."""
+    character = await stories.update_character(story_id, character_id, data, db)
+    if character is None:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return character
+
+
+@router.delete("/stories/{story_id}/characters/{character_id}")
+async def delete_story_character(
+    story_id: str,
+    character_id: str,
+    db: Session = Depends(get_db),
+):
+    """Delete a character (segments fall back to the narrator)."""
+    success = await stories.delete_character(story_id, character_id, db)
+    if not success:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return {"message": "Character deleted successfully"}

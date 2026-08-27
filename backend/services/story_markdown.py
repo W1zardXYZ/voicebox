@@ -33,22 +33,53 @@ from dataclasses import dataclass, field
 
 # ── read-aloud region delimiters ──────────────────────────────────────────
 
-# (opener regex with optional speaker-hint capture group, closer regex)
-_READ_ALOUD_PAIRS: list[tuple[re.Pattern, re.Pattern]] = [
+# (opener regex with optional speaker-hint capture group, closer regex, tag name)
+_READ_ALOUD_PAIRS: list[tuple[re.Pattern, re.Pattern, str]] = [
     (
         re.compile(r"\[\s*read aloud(?:\s*:\s*([^\]]*?))?\s*\]", re.IGNORECASE),
         re.compile(r"\[\s*/\s*read aloud\s*\]", re.IGNORECASE),
+        "read_aloud",
     ),
     (
         re.compile(r"<readaloud(?:\s+speaker\s*=\s*\"([^\"]*)\")?\s*>", re.IGNORECASE),
         re.compile(r"</readaloud\s*>", re.IGNORECASE),
+        "read_aloud",
     ),
-    (re.compile(r"\[\[\s*read\s*\]\]"), re.compile(r"\[\[\s*/\s*read\s*\]\]")),
+    (
+        re.compile(r"\[\[\s*read\s*\]\]"),
+        re.compile(r"\[\[\s*/\s*read\s*\]\]"),
+        "read_aloud",
+    ),
     (
         re.compile(r"<!--\s*read aloud(?:\s*:\s*([^-]*?))?\s*-->", re.IGNORECASE),
         re.compile(r"<!--\s*/\s*read aloud\s*-->", re.IGNORECASE),
+        "read_aloud",
     ),
 ]
+
+
+def compile_tag_pair(open_tag: str, close_tag: str) -> tuple[re.Pattern, re.Pattern, str]:
+    """Compile a user-supplied XML/HTML-style separator pair (spec: custom tags).
+
+    The tags are treated as literal XML/HTML tag names (any ``< >`` wrappers are
+    tolerated), so ``<vorlesen>`` and ``vorlesen`` both work. An optional
+    ``speaker="Name"`` attribute on the opener sets a speaker hint. Returns a
+    ``(open_re, close_re, tag)`` tuple with ``tag`` = ``"custom"``.
+    """
+    open_stripped = open_tag.strip()
+    close_stripped = close_tag.strip()
+    if not open_stripped or not close_stripped:
+        raise ValueError("Both an opening and closing separator tag are required")
+
+    # Accept the tag with or without angle-bracket wrappers.
+    open_name = re.escape(open_stripped.strip("<>").lstrip("/").strip())
+    close_name = re.escape(close_stripped.strip("<>").lstrip("/").strip())
+    open_re = re.compile(
+        r"<\s*" + open_name + r"\b(?:\s+speaker\s*=\s*\"([^\"]*)\")?\s*>",
+        re.IGNORECASE,
+    )
+    close_re = re.compile(r"</\s*" + close_name + r"\s*>", re.IGNORECASE)
+    return open_re, close_re, "custom"
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 
@@ -151,23 +182,36 @@ def dialogue_speaker_hint(text: str) -> str | None:
     return name
 
 
-def parse_markdown_blocks(markdown: str) -> list[Block]:
-    """Split *markdown* into heading/content blocks, tracking read-aloud
-    regions and their speaker hints."""
+def parse_markdown_blocks(
+    markdown: str,
+    pairs: list[tuple[re.Pattern, re.Pattern, str]] | None = None,
+) -> list[Block]:
+    """Split *markdown* into heading/content blocks, tracking tagged regions
+    (read-aloud delimiters and any custom separator pair) and their hints.
+
+    A region — whether a built-in read-aloud delimiter or a custom XML/HTML
+    separator — is NOT split at blank lines, so a multi-paragraph passage
+    wrapped in a single tag becomes one segment.
+    """
+    if pairs is None:
+        pairs = _READ_ALOUD_PAIRS
+
     blocks: list[Block] = []
     in_region = False
     region_speaker: str | None = None
+    region_tag: str = ""
 
     buf: list[str] = []
     buf_start = 0
     # Region state is snapshotted when a buffer *starts*: the closer line can
     # reset in_region/region_speaker before the buffer is flushed.
     buf_region = False
+    buf_tag = ""
     buf_speaker: str | None = None
     offset = 0
 
     def flush() -> None:
-        nonlocal buf, buf_region, buf_speaker
+        nonlocal buf, buf_region, buf_tag, buf_speaker
         if not buf:
             return
         text = clean_segment_text("".join(buf))
@@ -177,13 +221,14 @@ def parse_markdown_blocks(markdown: str) -> list[Block]:
                     kind="content",
                     text=text,
                     speaker_hint=buf_speaker,
-                    tags=["read_aloud"] if buf_region else [],
+                    tags=[buf_tag] if buf_region else [],
                     start=buf_start,
                     end=offset,
                 )
             )
         buf = []
         buf_region = False
+        buf_tag = ""
         buf_speaker = None
 
     for line in markdown.splitlines(keepends=True):
@@ -194,7 +239,13 @@ def parse_markdown_blocks(markdown: str) -> list[Block]:
 
         stripped = content.strip()
         if not stripped:
-            flush()
+            if in_region:
+                # A blank line inside a region separates paragraphs but must not
+                # split the passage — join later with a space.
+                if buf:
+                    buf.append(" ")
+            else:
+                flush()
             continue
 
         if not in_region:
@@ -212,34 +263,62 @@ def parse_markdown_blocks(markdown: str) -> list[Block]:
                 )
                 continue
 
-        # Detect closer first so `[read aloud] … [/read aloud]` on one line
-        # closes before the next opener would apply.
-        region_piece = content
+        # Process this line's tags in order. Detect a closer first (so a
+        # `[tag] … [/tag]` on one line closes before the next opener applies),
+        # then an opener, then re-check for a closer after the opener so a
+        # single-line `<vorlesen>text</vorlesen>` is treated as one region.
+        was_in_region = in_region
+        piece = content
+        started_region_this_line = False
+        started_tag = ""
+        started_speaker: str | None = None
+
         if in_region:
-            for _open_re, close_re in _READ_ALOUD_PAIRS:
-                m = close_re.search(region_piece)
+            for _open_re, close_re, _tag in pairs:
+                m = close_re.search(piece)
                 if m:
-                    region_piece = region_piece[: m.start()]
+                    piece = piece[: m.start()]
                     in_region = False
                     region_speaker = None
+                    region_tag = ""
                     break
 
         if not in_region:
-            for open_re, _close_re in _READ_ALOUD_PAIRS:
-                m = open_re.search(region_piece)
+            for open_re, close_re, tag in pairs:
+                m = open_re.search(piece)
                 if m:
                     hint = m.group(1).strip() if m.lastindex else None
                     region_speaker = hint or None
+                    region_tag = tag
+                    started_region_this_line = True
+                    started_tag = tag
+                    started_speaker = region_speaker
                     in_region = True
-                    region_piece = region_piece[: m.start()] + region_piece[m.end() :]
+                    piece = piece[: m.start()] + piece[m.end() :]
+                    cm = close_re.search(piece)
+                    if cm:
+                        piece = piece[: cm.start()]
+                        in_region = False
+                        region_speaker = None
+                        region_tag = ""
                     break
 
-        if region_piece.strip():
+        piece_is_region = bool(piece.strip()) and (
+            was_in_region or started_region_this_line or in_region
+        )
+        if piece.strip():
             if not buf:
                 buf_start = line_start
-                buf_region = in_region
-                buf_speaker = region_speaker
-            buf.append(region_piece)
+                buf_region = piece_is_region
+                # Snapshot the tag/speaker from the region that opened on this
+                # line (a same-line closer clears the live state first).
+                if started_region_this_line:
+                    buf_tag = started_tag
+                    buf_speaker = started_speaker
+                else:
+                    buf_tag = region_tag if piece_is_region else ""
+                    buf_speaker = region_speaker if piece_is_region else None
+            buf.append(piece)
         else:
             # The line was entirely a tag — flush any pending content so a
             # region boundary never merges into an unrelated block.
@@ -250,17 +329,22 @@ def parse_markdown_blocks(markdown: str) -> list[Block]:
 
 
 def _build_chapter(
-    blocks: list[Block], title: str, level: int, mode: str, speak_untagged: bool
+    blocks: list[Block],
+    title: str,
+    level: int,
+    mode: str,
+    speak_untagged: bool,
+    filter_regions: bool,
 ) -> Chapter:
     chapter = Chapter(title=title, level=level)
     for b in blocks:
         if b.kind != "content":
             continue
-        is_region = "read_aloud" in b.tags
-        if mode == "read_aloud" and not is_region and not speak_untagged:
+        is_region = bool(b.tags)
+        if filter_regions and not is_region and not speak_untagged:
             continue
         tags = list(b.tags)
-        if mode == "read_aloud" and not is_region:
+        if filter_regions and not is_region:
             tags.append("untagged")
         chapter.segments.append(
             Segment(
@@ -297,16 +381,33 @@ def segment_markdown(
     mode: str = "h1",
     speak_untagged: bool = True,
     combine_max_chars: int = 0,
+    custom_open_tag: str = "",
+    custom_close_tag: str = "",
 ) -> list[Chapter]:
     """Segment *markdown* into chapters/segments per the split *mode*.
 
-    Raises ``ValueError`` for an unknown mode. Returns a list of Chapter
-    dataclasses (see the module docstring for per-mode semantics).
+    ``custom_open_tag`` / ``custom_close_tag`` add a user-supplied XML/HTML
+    separator pair (e.g. ``<vorlesen>`` / ``</vorlesen>``). When set, content
+    inside a tagged region becomes a segment within its chapter (grouped by
+    H1/H2 per *mode*) — it never creates new chapters. Untagged content is
+    only segmented when *speak_untagged* is on. Tagged segments carry a
+    ``custom`` tag so the editor can tint them.
+
+    Raises ``ValueError`` for an unknown mode or a malformed tag pair.
     """
     if mode not in _VALID_MODES:
         raise ValueError(f"Unknown split mode: {mode}. Use one of {', '.join(_VALID_MODES)}")
 
-    blocks = parse_markdown_blocks(markdown)
+    pairs = list(_READ_ALOUD_PAIRS)
+    has_custom = bool(custom_open_tag.strip()) or bool(custom_close_tag.strip())
+    if has_custom:
+        pairs.append(compile_tag_pair(custom_open_tag, custom_close_tag))
+
+    # When custom tags are active, or in read_aloud mode, only tagged regions
+    # become segments (unless speak_untagged is on).
+    filter_regions = has_custom or mode == "read_aloud"
+
+    blocks = parse_markdown_blocks(markdown, pairs)
     chapters: list[Chapter] = []
     pending_title: str | None = None  # title of the chapter `current` belongs to
     pending_level = 0
@@ -321,7 +422,7 @@ def segment_markdown(
             pending_title = None
             return
         chapter = _build_chapter(
-            current, pending_title or "Untitled", pending_level, mode, speak_untagged
+            current, pending_title or "Untitled", pending_level, mode, speak_untagged, filter_regions
         )
         _apply_combine(chapter, combine_max_chars)
         if chapter.segments:

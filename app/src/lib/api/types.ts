@@ -463,6 +463,9 @@ export interface StorySegment {
   text: string;
   profile_id?: string | null;
   profile_name?: string | null;
+  character_id?: string | null;
+  character_name?: string | null;
+  tag?: string | null; // e.g. "custom" for <vorlesen> regions
   engine?: string | null;
   model_size?: string | null;
   language?: string | null;
@@ -473,6 +476,30 @@ export interface StorySegment {
   volume: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface StoryCharacter {
+  id: string;
+  story_id: string;
+  name: string;
+  profile_id?: string | null;
+  profile_name?: string | null;
+  is_narrator: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoryCharacterCreate {
+  name: string;
+  profile_id?: string | null;
+  is_narrator?: boolean;
+}
+
+export interface StoryCharacterUpdate {
+  name?: string;
+  profile_id?: string | null;
+  is_narrator?: boolean;
 }
 
 export interface StoryChapter {
@@ -495,6 +522,8 @@ export interface StoryDetailResponse {
   items: StoryItemDetail[];
   /** Optional chapter → segment hierarchy (spec §4); empty for flat stories. */
   chapters: StoryChapter[];
+  /** Per-project characters/speakers; narrator = first (or is_narrator). */
+  characters: StoryCharacter[];
 }
 
 // ── Markdown import (spec §4.3/§4.4) ─────────────────────────────────────
@@ -537,16 +566,31 @@ export interface MarkdownChapterCommit {
 
 export interface MarkdownImportCommitRequest {
   chapters: MarkdownChapterCommit[];
+  /** Set the project narrator before commit (creates + assigns to segments). */
+  narrator_name?: string | null;
+  narrator_profile_id?: string | null;
 }
 
 export interface StorySegmentUpdate {
   text?: string;
   profile_id?: string | null;
+  character_id?: string | null;
   engine?: string | null;
   model_size?: string | null;
   language?: string | null;
   fade_in_ms?: number;
   fade_out_ms?: number;
+}
+
+export interface MarkdownImportRequest {
+  markdown: string;
+  mode: 'h1' | 'h2' | 'paragraph' | 'read_aloud';
+  speak_untagged: boolean;
+  combine_max_chars: number;
+  language?: string | null;
+  /** Custom XML/HTML separator pair (e.g. <vorlesen> / </vorlesen>). */
+  custom_open_tag?: string;
+  custom_close_tag?: string;
 }
 
 export interface StoryItemCreate {

@@ -154,3 +154,77 @@ def test_parse_blocks_tracks_offsets():
     content = blocks[1]
     assert content.kind == "content"
     assert md[content.start : content.end].strip() == "Erster Block."
+
+
+def test_custom_tag_splits_segments_within_chapter():
+    md = """# Szene
+
+Hier ist nur Kontext, nicht zu sprechen.
+
+<vorlesen>Dies ist die erste vorzulesende Passage.</vorlesen>
+
+<vorlesen>Eine zweite Passage, die gesprochen wird.</vorlesen>
+"""
+    chapters = segment_markdown(
+        md, mode="h1", speak_untagged=False, custom_open_tag="<vorlesen>", custom_close_tag="</vorlesen>"
+    )
+    # Chapters are unaffected — still one H1 chapter.
+    assert [c.title for c in chapters] == ["Szene"]
+    segments = chapters[0].segments
+    assert [s.text for s in segments] == [
+        "Dies ist die erste vorzulesende Passage.",
+        "Eine zweite Passage, die gesprochen wird.",
+    ]
+    assert all("custom" in s.tags for s in segments)
+    assert all("untagged" not in s.tags for s in segments)
+
+
+def test_custom_tag_multiparagraph_region_is_one_segment():
+    md = """# Szene
+
+<vorlesen>
+Erster Absatz der Passage.
+
+Zweiter Absatz derselben Passage.
+</vorlesen>
+"""
+    chapters = segment_markdown(
+        md, mode="h1", speak_untagged=False, custom_open_tag="<vorlesen>", custom_close_tag="</vorlesen>"
+    )
+    assert len(chapters[0].segments) == 1
+    assert chapters[0].segments[0].text == (
+        "Erster Absatz der Passage. Zweiter Absatz derselben Passage."
+    )
+
+
+def test_custom_tag_speaker_hint():
+    md = """# Szene
+
+<vorlesen speaker="Narrator">Text der erzählt wird.</vorlesen>
+"""
+    chapters = segment_markdown(
+        md, mode="h1", speak_untagged=False, custom_open_tag="<vorlesen>", custom_close_tag="</vorlesen>"
+    )
+    assert chapters[0].segments[0].speaker_hint == "Narrator"
+
+
+def test_custom_tag_requires_closing_pair():
+    with pytest.raises(ValueError):
+        segment_markdown("# x\n\ntext", custom_open_tag="<vorlesen>", custom_close_tag="")
+
+
+def test_untagged_text_segmented_when_speak_untagged():
+    md = """# Szene
+
+Nicht getaggter Text.
+
+<vorlesen>Getaggter Text.</vorlesen>
+"""
+    chapters = segment_markdown(
+        md, mode="h1", speak_untagged=True, custom_open_tag="<vorlesen>", custom_close_tag="</vorlesen>"
+    )
+    texts = [s.text for s in chapters[0].segments]
+    assert "Nicht getaggter Text." in texts
+    assert "Getaggter Text." in texts
+    untagged = next(s for s in chapters[0].segments if s.text == "Nicht getaggter Text.")
+    assert "untagged" in untagged.tags

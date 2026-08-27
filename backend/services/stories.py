@@ -35,12 +35,16 @@ from ..models import (
     StorySegmentCreate,
     StorySegmentUpdate,
     StorySegmentResponse,
+    StoryCharacterCreate,
+    StoryCharacterUpdate,
+    StoryCharacterResponse,
 )
 from ..database import (
     Story as DBStory,
     StoryItem as DBStoryItem,
     StoryChapter as DBStoryChapter,
     StorySegment as DBStorySegment,
+    StoryCharacter as DBStoryCharacter,
     Generation as DBGeneration,
     VoiceProfile as DBVoiceProfile,
 )
@@ -204,6 +208,7 @@ async def get_story(
     response = StoryDetailResponse.model_validate(story)
     response.items = item_details
     response.chapters = _list_chapters(story_id, db)
+    response.characters = _list_characters(story_id, db)
     return response
 
 
@@ -1070,12 +1075,18 @@ async def export_story_audio(
 
 
 def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentResponse:
-    """Build a StorySegmentResponse, denormalizing the profile name and the
-    linked timeline clip's volume."""
+    """Build a StorySegmentResponse, denormalizing the profile name, its
+    character (speaker), and the linked timeline clip's volume."""
     profile_name = None
     if segment.profile_id:
         profile = db.query(DBVoiceProfile).filter_by(id=segment.profile_id).first()
         profile_name = profile.name if profile else None
+
+    character_name = None
+    if segment.character_id:
+        character = db.query(DBStoryCharacter).filter_by(id=segment.character_id).first()
+        if character is not None:
+            character_name = character.name
 
     volume = 1.0
     if segment.generation_id:
@@ -1095,6 +1106,9 @@ def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentRespo
         text=segment.text,
         profile_id=segment.profile_id,
         profile_name=profile_name,
+        character_id=getattr(segment, "character_id", None),
+        character_name=character_name,
+        tag=getattr(segment, "tag", None),
         engine=segment.engine,
         model_size=segment.model_size,
         language=segment.language,
@@ -1106,6 +1120,47 @@ def _segment_response(segment: DBStorySegment, db: Session) -> StorySegmentRespo
         created_at=segment.created_at,
         updated_at=segment.updated_at,
     )
+
+
+def _character_response(character: DBStoryCharacter, db: Session) -> StoryCharacterResponse:
+    profile_name = None
+    if character.profile_id:
+        profile = db.query(DBVoiceProfile).filter_by(id=character.profile_id).first()
+        profile_name = profile.name if profile else None
+    return StoryCharacterResponse(
+        id=character.id,
+        story_id=character.story_id,
+        name=character.name,
+        profile_id=character.profile_id,
+        profile_name=profile_name,
+        is_narrator=character.is_narrator,
+        order_index=character.order_index,
+        created_at=character.created_at,
+        updated_at=character.updated_at,
+    )
+
+
+def _list_characters(story_id: str, db: Session) -> list[StoryCharacterResponse]:
+    characters = (
+        db.query(DBStoryCharacter)
+        .filter_by(story_id=story_id)
+        .order_by(DBStoryCharacter.order_index)
+        .all()
+    )
+    return [_character_response(c, db) for c in characters]
+
+
+def _ensure_character_order(db: Session, story_id: str) -> None:
+    characters = (
+        db.query(DBStoryCharacter)
+        .filter_by(story_id=story_id)
+        .order_by(DBStoryCharacter.order_index, DBStoryCharacter.created_at)
+        .all()
+    )
+    for i, char in enumerate(characters):
+        if char.order_index != i:
+            char.order_index = i
+    db.flush()
 
 
 def _chapter_response(chapter: DBStoryChapter, db: Session) -> StoryChapterResponse:
@@ -1228,6 +1283,8 @@ def import_markdown_preview(data: MarkdownImportRequest) -> MarkdownImportPrevie
         mode=data.mode,
         speak_untagged=data.speak_untagged,
         combine_max_chars=data.combine_max_chars,
+        custom_open_tag=data.custom_open_tag,
+        custom_close_tag=data.custom_close_tag,
     )
     return MarkdownImportPreview(
         chapters=[
@@ -1254,10 +1311,44 @@ async def commit_markdown_import(
     data: MarkdownImportCommitRequest,
     db: Session,
 ) -> Optional[StoryDetailResponse]:
-    """Persist an approved segmentation as chapters + segments (spec §4.3)."""
+    """Persist an approved segmentation as chapters + segments (spec §4.3).
+
+    When ``narrator_profile_id`` is provided, a narrator character is created
+    (or reused) and assigned to every imported segment, so the project has a
+    sensible default voice before any manual assignment.
+    """
     story = db.query(DBStory).filter_by(id=story_id).first()
     if not story:
         return None
+
+    narrator_character_id = None
+    if data.narrator_profile_id:
+        narrator = (
+            db.query(DBStoryCharacter)
+            .filter_by(story_id=story_id, is_narrator=True)
+            .order_by(DBStoryCharacter.order_index)
+            .first()
+        )
+        if narrator is not None:
+            narrator.profile_id = data.narrator_profile_id
+            if data.narrator_name:
+                narrator.name = data.narrator_name
+            narrator.updated_at = datetime.utcnow()
+            narrator_character_id = narrator.id
+        else:
+            narrator = DBStoryCharacter(
+                id=str(uuid.uuid4()),
+                story_id=story_id,
+                name=data.narrator_name or "Narrator",
+                profile_id=data.narrator_profile_id,
+                is_narrator=True,
+                order_index=0,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(narrator)
+            db.flush()
+            narrator_character_id = narrator.id
 
     existing_count = db.query(DBStoryChapter).filter_by(story_id=story_id).count()
 
@@ -1293,6 +1384,9 @@ async def commit_markdown_import(
                     order_index=seg_index,
                     text=seg.text,
                     profile_id=profile_id,
+                    # Default every imported segment to the narrator.
+                    character_id=narrator_character_id,
+                    tag=seg.tag,
                     status="draft",
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
@@ -1302,6 +1396,85 @@ async def commit_markdown_import(
     story.updated_at = datetime.utcnow()
     db.commit()
     return await get_story(story_id, db)
+
+
+async def create_character(
+    story_id: str,
+    data: StoryCharacterCreate,
+    db: Session,
+) -> Optional[StoryCharacterResponse]:
+    story = db.query(DBStory).filter_by(id=story_id).first()
+    if not story:
+        return None
+    next_index = (
+        db.query(func.max(DBStoryCharacter.order_index)).filter_by(story_id=story_id).scalar() or 0
+    )
+    character = DBStoryCharacter(
+        id=str(uuid.uuid4()),
+        story_id=story_id,
+        name=data.name,
+        profile_id=data.profile_id,
+        is_narrator=data.is_narrator,
+        order_index=next_index,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(character)
+    story.updated_at = datetime.utcnow()
+    db.commit()
+    _ensure_character_order(db, story_id)
+    db.commit()
+    db.refresh(character)
+    return _character_response(character, db)
+
+
+async def update_character(
+    story_id: str,
+    character_id: str,
+    data: StoryCharacterUpdate,
+    db: Session,
+) -> Optional[StoryCharacterResponse]:
+    character = (
+        db.query(DBStoryCharacter)
+        .filter_by(id=character_id, story_id=story_id)
+        .first()
+    )
+    if not character:
+        return None
+    if data.name is not None:
+        character.name = data.name
+    if data.profile_id is not None:
+        character.profile_id = data.profile_id
+    if data.is_narrator is not None:
+        # Only one narrator — clear the flag from others.
+        if data.is_narrator:
+            db.query(DBStoryCharacter).filter_by(story_id=story_id, is_narrator=True).update(
+                {"is_narrator": False}
+            )
+        character.is_narrator = data.is_narrator
+    character.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(character)
+    return _character_response(character, db)
+
+
+async def delete_character(story_id: str, character_id: str, db: Session) -> bool:
+    character = (
+        db.query(DBStoryCharacter)
+        .filter_by(id=character_id, story_id=story_id)
+        .first()
+    )
+    if not character:
+        return False
+    # Detach segments that referenced this character.
+    db.query(DBStorySegment).filter_by(character_id=character_id).update(
+        {"character_id": None}
+    )
+    db.delete(character)
+    db.commit()
+    _ensure_character_order(db, story_id)
+    db.commit()
+    return True
 
 
 async def create_chapter(
@@ -1418,6 +1591,12 @@ async def update_segment(
         segment.text = data.text
     if data.profile_id is not None:
         segment.profile_id = data.profile_id
+    if data.character_id is not None:
+        segment.character_id = data.character_id
+        # Resolve the voice from the character when one is assigned.
+        character = db.query(DBStoryCharacter).filter_by(id=data.character_id).first()
+        if character is not None:
+            segment.profile_id = character.profile_id
     if data.engine is not None:
         segment.engine = data.engine
     if data.model_size is not None:
@@ -1499,16 +1678,44 @@ def _resolve_segment_profile(
     db: Session,
     override_profile_id: str | None,
 ) -> Optional[DBVoiceProfile]:
-    """Segment voice resolution: request override → segment → story default."""
-    profile_id = override_profile_id or segment.profile_id
-    if profile_id:
-        profile = db.query(DBVoiceProfile).filter_by(id=profile_id).first()
+    """Segment voice resolution (spec: characters system).
+
+    Order: request override → the segment's assigned character's voice → the
+    segment's own ``profile_id`` → the story's narrator → the story's default
+    voice profile.
+    """
+    if override_profile_id:
+        profile = db.query(DBVoiceProfile).filter_by(id=override_profile_id).first()
         if profile:
             return profile
+
+    if getattr(segment, "character_id", None):
+        character = db.query(DBStoryCharacter).filter_by(id=segment.character_id).first()
+        if character is not None and character.profile_id:
+            profile = db.query(DBVoiceProfile).filter_by(id=character.profile_id).first()
+            if profile:
+                return profile
+
+    if segment.profile_id:
+        profile = db.query(DBVoiceProfile).filter_by(id=segment.profile_id).first()
+        if profile:
+            return profile
+
     chapter = db.query(DBStoryChapter).filter_by(id=segment.chapter_id).first()
     if chapter is not None:
         story = db.query(DBStory).filter_by(id=chapter.story_id).first()
         if story is not None:
+            # Narrator character (is_narrator) first.
+            narrator = (
+                db.query(DBStoryCharacter)
+                .filter_by(story_id=story.id, is_narrator=True)
+                .order_by(DBStoryCharacter.order_index)
+                .first()
+            )
+            if narrator is not None and narrator.profile_id:
+                profile = db.query(DBVoiceProfile).filter_by(id=narrator.profile_id).first()
+                if profile:
+                    return profile
             default_id = getattr(story, "default_voice_profile_id", None)
             if default_id:
                 profile = db.query(DBVoiceProfile).filter_by(id=default_id).first()
@@ -1773,3 +1980,77 @@ async def generate_many_segments(
     story.updated_at = datetime.utcnow()
     db.commit()
     return results
+
+
+async def reorder_segments(
+    story_id: str,
+    segment_ids: list[str],
+    db: Session,
+) -> Optional[list[StorySegmentResponse]]:
+    """Re-number segments in document order (spec 2:3 dot-grid drag reorder).
+
+    ``segment_ids`` is the full desired order for one chapter. Re-numbers the
+    members 0..n-1 and returns them in order. Returns None if any id is not in
+    this story (a malformed request).
+    """
+    segs = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id.in_(segment_ids),
+            DBStoryChapter.story_id == story_id,
+        )
+        .all()
+    )
+    found_ids = {s.id for s in segs}
+    if len(found_ids) != len(set(segment_ids)):
+        return None
+
+    by_id = {s.id: s for s in segs}
+    for i, sid in enumerate(segment_ids):
+        seg = by_id[sid]
+        seg.order_index = i
+        seg.updated_at = datetime.utcnow()
+    db.commit()
+
+    chapter_id = (db.query(DBStorySegment).filter_by(id=segment_ids[0]).first().chapter_id)
+    ordered = sorted(segs, key=lambda s: segment_ids.index(s.id))
+    return [_segment_response(s, db) for s in ordered]
+
+
+async def move_segment(
+    story_id: str,
+    segment_id: str,
+    *,
+    to_chapter_id: str,
+    db: Session,
+) -> Optional[StorySegmentResponse]:
+    """Move a segment to another chapter (appended at the end)."""
+    segment = (
+        db.query(DBStorySegment)
+        .join(DBStoryChapter, DBStorySegment.chapter_id == DBStoryChapter.id)
+        .filter(
+            DBStorySegment.id == segment_id,
+            DBStoryChapter.story_id == story_id,
+        )
+        .first()
+    )
+    if not segment:
+        return None
+    target = (
+        db.query(DBStoryChapter)
+        .filter_by(id=to_chapter_id, story_id=story_id)
+        .first()
+    )
+    if target is None:
+        return None
+
+    old_chapter_id = segment.chapter_id
+    segment.chapter_id = to_chapter_id
+    segment.updated_at = datetime.utcnow()
+    db.flush()
+    _ensure_segment_order(db, old_chapter_id)
+    _ensure_segment_order(db, to_chapter_id)
+    db.commit()
+    db.refresh(segment)
+    return _segment_response(segment, db)

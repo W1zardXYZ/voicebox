@@ -119,6 +119,27 @@ class StoryChapter(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class StoryCharacter(Base):
+    """A named speaker/character in a story, mapped to a voice profile.
+
+    The first character (``is_narrator``) is the default voice for every
+    segment; other characters are assigned to specific segments. A segment's
+    effective voice is resolved from its character, falling back to the
+    narrator, then to the story's default voice.
+    """
+
+    __tablename__ = "story_characters"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    story_id = Column(String, ForeignKey("stories.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    profile_id = Column(String, ForeignKey("profiles.id"), nullable=True)
+    is_narrator = Column(Boolean, nullable=False, default=False)
+    order_index = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class StorySegment(Base):
     """A chunk of story text with an assignable speaker (spec §4).
 
@@ -140,6 +161,12 @@ class StorySegment(Base):
     language = Column(String, nullable=True)
     status = Column(String, nullable=False, default="draft")  # draft|queued|generating|completed|error
     generation_id = Column(String, ForeignKey("generations.id"), nullable=True)
+    # The character (speaker) assigned to this segment; its voice is resolved
+    # from the character (falling back to the narrator / story default).
+    character_id = Column(String, ForeignKey("story_characters.id"), nullable=True)
+    # Source tag (e.g. "custom" for <vorlesen> regions, "read_aloud") so the
+    # UI can color-tint tag-marked segments persistently.
+    tag = Column(String, nullable=True)
     # Per-segment audio fades (ms), applied when the segment is generated.
     fade_in_ms = Column(Integer, nullable=False, default=0)
     fade_out_ms = Column(Integer, nullable=False, default=0)

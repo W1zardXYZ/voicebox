@@ -21,22 +21,31 @@ models actually run on this machine.
   into chapters and segments (by H1, by H2, by paragraph, or by read-aloud
   tags) before anything is written. Merge micro-segments under a character
   budget, and let `[read aloud: Narrator]`-style regions pre-assign speakers.
+- **Custom separator tags.** Set your own XML/HTML tag pair (e.g.
+  `<vorlesen>` / `</vorlesen>`) with a live preview. Passages inside the tags
+  are auto-split into segments **within** their chapter — never a new chapter
+  — and stay color-tinted in the editor.
 - **Chapter → segment hierarchy.** New `story_chapters` / `story_segments`
   tables (optional — legacy flat stories keep working). Segments carry their
   own text, speaker (voice profile), engine and lifecycle status; timeline
   clips trace back to their segment.
-- **Chapter editor.** A chapter rail on the left (rename, delete, generate
-  all), segment cards in the center with editable text, a per-segment speaker
-  dropdown and Generate button, and a text-driven status badge
-  (draft → queued → generating → completed/error).
 - **Chapters are the default view.** Existing flat (legacy) stories are
   auto-materialized into a "Chapter 1" of one segment per item on first open,
   so the chapter/segment editor — not the old flat list — is what you see for
   every story. Idempotent and non-destructive: items and generations are
   untouched, segments are linked back to them.
-- **Per-segment synthesis.** Generate one segment or a whole chapter at once;
-  clips are placed sequentially on the timeline and segment status stays in
-  sync with the generation queue.
+- **ElevenLabs-style text editor.** The editor is now text-first (not boxy):
+  segments render as flowing paragraphs in a document, each with a 2:3
+  dot-grid drag handle on the left (drag to reorder within a chapter) and a
+  speaker avatar. The always-on Projects sidebar is hidden inside a project so
+  the editor gets full width; the chapters rail stays pinned.
+- **Per-segment settings panel.** A right-side panel with two tabs: **Clip**
+  (selected segment's character/voice, volume, fade in/out, generate) and
+  **Project** (rename/delete the project, manage characters).
+- **Characters & narrator.** Define per-project characters (name + voice
+  profile); the narrator is the default voice. Set the narrator in the
+  markdown-import dialog before creation so every segment defaults to it, then
+  assign other characters to specific segments. New `story_characters` table.
 
 ### Generation queue & progress
 

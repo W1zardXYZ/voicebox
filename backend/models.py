@@ -642,6 +642,8 @@ class StoryDetailResponse(BaseModel):
     # Optional chapter → segment hierarchy (spec §4); empty for legacy flat
     # stories. Forward ref: StoryChapterResponse is defined below.
     chapters: list["StoryChapterResponse"] = []
+    # Per-project characters/speakers (narrator = first, or is_narrator).
+    characters: list["StoryCharacterResponse"] = []
 
     class Config:
         from_attributes = True
@@ -728,6 +730,11 @@ class StorySegmentResponse(BaseModel):
     language: str | None = None
     status: str = "draft"  # draft|queued|generating|completed|error
     generation_id: str | None = None
+    # Character (speaker) assignment — its voice is resolved from the
+    # character, falling back to the narrator / story default.
+    character_id: str | None = None
+    character_name: str | None = None
+    tag: str | None = None  # e.g. "custom" for <vorlesen> regions
     fade_in_ms: int = 0
     fade_out_ms: int = 0
     volume: float = 1.0  # linked timeline clip's linear gain
@@ -736,6 +743,39 @@ class StorySegmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class StoryCharacterResponse(BaseModel):
+    """Response model for a story character (a named speaker)."""
+
+    id: str
+    story_id: str
+    name: str
+    profile_id: str | None = None
+    profile_name: str | None = None  # denormalized for the UI
+    is_narrator: bool = False
+    order_index: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class StoryCharacterCreate(BaseModel):
+    """Request model for creating a story character."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    profile_id: str | None = None
+    is_narrator: bool = False
+
+
+class StoryCharacterUpdate(BaseModel):
+    """Request model for updating a story character."""
+
+    name: str | None = Field(None, min_length=1, max_length=120)
+    profile_id: str | None = None
+    is_narrator: bool | None = None
 
 
 class StoryChapterResponse(BaseModel):
@@ -781,6 +821,7 @@ class StorySegmentUpdate(BaseModel):
 
     text: str | None = Field(None, min_length=1)
     profile_id: str | None = None
+    character_id: str | None = None
     engine: str | None = None
     model_size: str | None = None
     language: str | None = None
@@ -799,6 +840,18 @@ class StorySegmentGenerateRequest(BaseModel):
 
     profile_id: str | None = None  # override the segment's speaker
     language: str | None = None
+
+
+class StorySegmentReorder(BaseModel):
+    """Request model for reordering segments in document order."""
+
+    segment_ids: list[str] = Field(..., min_length=1)
+
+
+class StorySegmentMove(BaseModel):
+    """Request model for moving a segment to another chapter."""
+
+    chapter_id: str = Field(..., min_length=1)
 
 
 class StorySegmentsGenerateManyRequest(BaseModel):
@@ -849,6 +902,11 @@ class MarkdownImportRequest(BaseModel):
         description="Merge consecutive segments under N chars (0 = disabled)",
     )
     language: str | None = None
+    # Custom XML/HTML separator pair (e.g. <vorlesen> / </vorlesen>). When set,
+    # content inside a tagged region becomes a segment within its chapter —
+    # it never creates new chapters. Tagged segments carry a `custom` tag.
+    custom_open_tag: str = Field(default="", max_length=64)
+    custom_close_tag: str = Field(default="", max_length=64)
 
 
 class MarkdownSegmentCommit(BaseModel):
@@ -857,6 +915,7 @@ class MarkdownSegmentCommit(BaseModel):
     text: str = Field(..., min_length=1)
     profile_id: str | None = None
     speaker_hint: str | None = None
+    tag: str | None = None  # e.g. "custom" for <vorlesen> regions
 
 
 class MarkdownChapterCommit(BaseModel):
@@ -870,6 +929,10 @@ class MarkdownImportCommitRequest(BaseModel):
     """Request model for committing an approved segmentation."""
 
     chapters: list[MarkdownChapterCommit] = Field(..., min_length=1)
+    # Set the project's narrator before commit: creates/uses a narrator
+    # character and assigns it to every segment by default.
+    narrator_name: str | None = Field(None, max_length=120)
+    narrator_profile_id: str | None = None
 
 
 class EffectConfig(BaseModel):

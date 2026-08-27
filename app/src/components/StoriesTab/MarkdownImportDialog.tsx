@@ -27,6 +27,8 @@ import type {
   MarkdownImportRequest,
 } from '@/lib/api/types';
 import { useCommitMarkdownImport, useMarkdownImportPreview } from '@/lib/hooks/useStories';
+import { useProfiles } from '@/lib/hooks/useProfiles';
+import { cn } from '@/lib/utils/cn';
 
 const SPLIT_MODES: { value: MarkdownImportRequest['mode']; label: string }[] = [
   { value: 'h1', label: 'splitModes.h1' },
@@ -50,6 +52,7 @@ export function MarkdownImportDialog({
 }) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { data: profiles } = useProfiles();
   const previewMutation = useMarkdownImportPreview();
   const commitMutation = useCommitMarkdownImport();
 
@@ -58,6 +61,12 @@ export function MarkdownImportDialog({
   const [mode, setMode] = useState<MarkdownImportRequest['mode']>('h1');
   const [speakUntagged, setSpeakUntagged] = useState(true);
   const [combineMaxChars, setCombineMaxChars] = useState(0);
+  // Custom XML/HTML separator pair (e.g. <vorlesen>/</vorlesen>) — splits
+  // segments within chapters, never creates new ones.
+  const [customOpenTag, setCustomOpenTag] = useState('<vorlesen>');
+  const [customCloseTag, setCustomCloseTag] = useState('</vorlesen>');
+  // Narrator set before creation — every segment defaults to this voice.
+  const [narratorProfileId, setNarratorProfileId] = useState<string>('none');
   const [preview, setPreview] = useState<MarkdownImportPreview | null>(null);
 
   const reset = () => {
@@ -66,6 +75,9 @@ export function MarkdownImportDialog({
     setMode('h1');
     setSpeakUntagged(true);
     setCombineMaxChars(0);
+    setCustomOpenTag('<vorlesen>');
+    setCustomCloseTag('</vorlesen>');
+    setNarratorProfileId('none');
   };
 
   const loadFile = async (file: File) => {
@@ -87,6 +99,8 @@ export function MarkdownImportDialog({
           mode,
           speak_untagged: speakUntagged,
           combine_max_chars: combineMaxChars,
+          custom_open_tag: customOpenTag,
+          custom_close_tag: customCloseTag,
         },
       });
       setPreview(result);
@@ -110,8 +124,11 @@ export function MarkdownImportDialog({
             segments: c.segments.map((s) => ({
               text: s.text,
               speaker_hint: s.speaker_hint,
+              tag: s.tags[0] ?? null,
             })),
           })),
+          narrator_name: profiles?.find((p) => p.id === narratorProfileId)?.name ?? 'Narrator',
+          narrator_profile_id: narratorProfileId === 'none' ? null : narratorProfileId,
         },
       });
       reset();
@@ -198,7 +215,51 @@ export function MarkdownImportDialog({
             </div>
           </div>
 
-          {mode === 'read_aloud' && (
+          {/* Custom separator tags — splits segments WITHIN chapters */}
+          <div className="rounded-lg border p-2.5 space-y-2 bg-background">
+            <Label className="text-xs">{t('import.customTags')}</Label>
+            <p className="text-[11px] text-muted-foreground">{t('import.customTagsHint')}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">{t('import.openTag')}</Label>
+                <Input
+                  value={customOpenTag}
+                  onChange={(e) => setCustomOpenTag(e.target.value)}
+                  placeholder="<vorlesen>"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">{t('import.closeTag')}</Label>
+                <Input
+                  value={customCloseTag}
+                  onChange={(e) => setCustomCloseTag(e.target.value)}
+                  placeholder="</vorlesen>"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Narrator — set before creation, defaults every segment */}
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('import.narrator')}</Label>
+            <Select value={narratorProfileId} onValueChange={setNarratorProfileId}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder={t('import.narratorPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('settings.noVoice')}</SelectItem>
+                {(profiles ?? []).map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(mode === 'read_aloud' || customOpenTag.trim() || customCloseTag.trim()) && (
             <label
               htmlFor="import-speak-untagged"
               className="flex items-center gap-2 text-xs text-muted-foreground"
@@ -238,17 +299,28 @@ export function MarkdownImportDialog({
                     </Badge>
                   </p>
                   <ul className="space-y-1">
-                    {chapter.segments.map((seg) => (
-                      <li
-                        key={`${ci}-${seg.source_span}`}
-                        className="text-xs text-muted-foreground pl-3 border-l border-border"
-                      >
-                        <span className="line-clamp-2">{seg.text}</span>
-                        {seg.speaker_hint && (
-                          <span className="text-[10px] text-accent">@{seg.speaker_hint}</span>
-                        )}
-                      </li>
-                    ))}
+                    {chapter.segments.map((seg) => {
+                      const tagged = seg.tags.includes('custom') || seg.tags.includes('read_aloud');
+                      return (
+                        <li
+                          key={`${ci}-${seg.source_span}`}
+                          className={cn(
+                            'text-xs pl-3 border-l',
+                            tagged
+                              ? 'text-foreground border-amber-500 bg-amber-500/5'
+                              : 'text-muted-foreground border-border',
+                          )}
+                        >
+                          <span className="line-clamp-2">{seg.text}</span>
+                          {tagged && (
+                            <span className="text-[10px] text-amber-500">{t('editor.tagged')}</span>
+                          )}
+                          {seg.speaker_hint && (
+                            <span className="text-[10px] text-accent">@{seg.speaker_hint}</span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               ))}

@@ -752,7 +752,9 @@
       "gpu": "GPU",
       "logs": "ログ",
       "changelog": "変更履歴",
-      "about": "このアプリについて"
+      "about": "このアプリについて",
+      "clip": "Clip",
+      "project": "Project"
     },
     "language": {
       "label": "言語",
@@ -1162,7 +1164,19 @@
       "createdBy": "作者",
       "buyCoffee": "コーヒーをおごる",
       "license": "<link>MIT</link> ライセンス"
-    }
+    },
+    "character": "Character",
+    "narratorDefault": "Narrator (default)",
+    "selectSegment": "Select a segment to edit its settings.",
+    "projectName": "Project name",
+    "characters": "Characters",
+    "noCharacters": "No characters yet. Add one to define speakers.",
+    "addCharacter": "Add character",
+    "characterName": "Name",
+    "voice": "Voice",
+    "noVoice": "No voice",
+    "saveCharacter": "Save character",
+    "toggleNarrator": "Set as narrator"
   },
   "models": {
     "title": "モデル",
@@ -1276,7 +1290,8 @@
     "fadeIn": "Fade in",
     "fadeOut": "Fade out",
     "generateAll": "Generate all",
-    "perSegment": "per segment"
+    "perSegment": "per segment",
+    "delete": "Delete segment"
   },
   "chapters": {
     "title": "Chapters",
@@ -1302,12 +1317,23 @@
     "empty": "The script is empty.",
     "previewFailed": "Failed to preview segmentation",
     "committed": "Script imported",
-    "commitFailed": "Failed to import script"
+    "commitFailed": "Failed to import script",
+    "customTags": "Separator tags",
+    "customTagsHint": "Passages inside these tags are split into segments within their chapter — never a new chapter.",
+    "openTag": "Open tag",
+    "closeTag": "Close tag",
+    "narrator": "Narrator voice (default speaker)",
+    "narratorPlaceholder": "Choose narrator…"
   },
   "splitModes": {
     "h1": "By H1 (one chapter per #)",
     "h2": "By H2 (one chapter per ##)",
     "paragraph": "By paragraph",
     "readAloud": "Read-aloud tags"
+  },
+  "editor": {
+    "dragSegment": "Drag to reorder",
+    "tagged": "tagged",
+    "reorderFailed": "Failed to reorder segments"
   }
 }

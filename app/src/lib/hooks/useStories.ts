@@ -3,6 +3,8 @@ import { apiClient } from '@/lib/api/client';
 import type {
   MarkdownImportCommitRequest,
   MarkdownImportRequest,
+  StoryCharacterCreate,
+  StoryCharacterUpdate,
   StoryCreate,
   StoryItemBatchUpdate,
   StoryItemCreate,
@@ -381,6 +383,49 @@ export function useGenerateSegment() {
       segmentId: string;
       profileId?: string | null;
     }) => apiClient.generateSegment(storyId, segmentId, { profile_id: profileId }),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useCreateCharacter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, data }: { storyId: string; data: StoryCharacterCreate }) =>
+      apiClient.createCharacter(storyId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useUpdateCharacter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      storyId,
+      characterId,
+      data,
+    }: {
+      storyId: string;
+      characterId: string;
+      data: StoryCharacterUpdate;
+    }) => apiClient.updateCharacter(storyId, characterId, data),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useDeleteCharacter() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, characterId }: { storyId: string; characterId: string }) =>
+      apiClient.deleteCharacter(storyId, characterId),
+    onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
+  });
+}
+
+export function useReorderSegments() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ storyId, segmentIds }: { storyId: string; segmentIds: string[] }) =>
+      apiClient.reorderSegments(storyId, segmentIds),
     onSuccess: (_, variables) => invalidateStoryQueries(queryClient, variables.storyId),
   });
 }

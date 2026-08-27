@@ -201,6 +201,33 @@ def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> Non
         if "fade_out_ms" not in columns:
             _add_column(engine, "story_segments", "fade_out_ms INTEGER NOT NULL DEFAULT 0", "fade_out_ms")
 
+    # story_characters table + story_segments.character_id
+    if "story_characters" not in tables:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE story_characters (
+                    id VARCHAR PRIMARY KEY,
+                    story_id VARCHAR NOT NULL,
+                    name VARCHAR NOT NULL,
+                    profile_id VARCHAR,
+                    is_narrator BOOLEAN NOT NULL DEFAULT 0,
+                    order_index INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX ix_story_characters_story_id ON story_characters (story_id)"
+            ))
+            conn.commit()
+        logger.info("Created story_characters table")
+    if "story_segments" in tables:
+        columns = _get_columns(inspector, "story_segments")
+        if "character_id" not in columns:
+            _add_column(engine, "story_segments", "character_id VARCHAR", "character_id")
+        if "tag" not in columns:
+            _add_column(engine, "story_segments", "tag VARCHAR", "tag")
+
     if "story_items" in tables:
         columns = _get_columns(inspector, "story_items")
         if "story_segment_id" not in columns:

@@ -352,3 +352,133 @@ def test_apply_fades_noop_when_zero():
     audio = np.ones(100, dtype=np.float32)
     out = apply_fades(audio, 16000, 0, 0)
     assert out is audio
+
+
+@pytest.mark.asyncio
+async def test_commit_import_sets_narrator_and_defaults_segments():
+    from backend.services import stories
+    from backend.models import MarkdownChapterCommit, MarkdownSegmentCommit
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, narrator_profile = _seed_story_and_voice(db)
+
+        commit = MarkdownImportCommitRequest(
+            chapters=[
+                MarkdownChapterCommit(
+                    title="Kapitel",
+                    segments=[MarkdownSegmentCommit(text="Erster Satz.")],
+                )
+            ],
+            narrator_name="Erzähler",
+            narrator_profile_id=narrator_profile.id,
+        )
+        detail = await stories.commit_markdown_import(story.id, commit, db)
+        assert detail is not None
+
+        # Narrator character created.
+        assert len(detail.characters) == 1
+        narrator = detail.characters[0]
+        assert narrator.name == "Erzähler"
+        assert narrator.is_narrator is True
+        assert narrator.profile_id == narrator_profile.id
+
+        # Every segment defaults to the narrator character + its voice.
+        seg = detail.chapters[0].segments[0]
+        assert seg.character_id == narrator.id
+        assert seg.character_name == "Erzähler"
+        # Voice is derived from the character at generation time.
+        resolved = stories._resolve_segment_profile(seg, db, None)
+        assert resolved is not None and resolved.id == narrator_profile.id
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_segment_resolves_voice_from_assigned_character():
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, narrator_profile = _seed_story_and_voice(db)
+        other_profile = db_models.VoiceProfile(id=str(uuid.uuid4()), name="Hexe", language="de")
+        db.add(other_profile)
+        db.commit()
+
+        narrator = await stories.create_character(
+            story.id, __test_create_character("Narrator", narrator_profile.id, is_narrator=True), db
+        )
+        witch = await stories.create_character(
+            story.id, __test_create_character("Hexe", other_profile.id, is_narrator=False), db
+        )
+
+        chapter = await stories.create_chapter(story.id, StoryChapterCreate(title="K"), db)
+        seg = await stories.create_segment(
+            story.id, StorySegmentCreate(chapter_id=chapter.id, text="Satz."), db
+        )
+        # No character/profile → resolves to narrator.
+        resolved = stories._resolve_segment_profile(seg, db, None)
+        assert resolved is not None and resolved.id == narrator_profile.id
+
+        # Assign the witch character → voice switches.
+        seg = await stories.update_segment(
+            story.id, seg.id, StorySegmentUpdate(character_id=witch.id), db
+        )
+        assert seg.character_name == "Hexe"
+        assert seg.profile_id == other_profile.id
+        resolved2 = stories._resolve_segment_profile(seg, db, None)
+        assert resolved2.id == other_profile.id
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def __test_create_character(name, profile_id, is_narrator=False):
+    from backend.models import StoryCharacterCreate
+
+    return StoryCharacterCreate(name=name, profile_id=profile_id, is_narrator=is_narrator)
+
+
+@pytest.mark.asyncio
+async def test_reorder_segments_renumbers():
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, profile = _seed_story_and_voice(db)
+        chapter = await stories.create_chapter(story.id, StoryChapterCreate(title="K"), db)
+        s1 = await stories.create_segment(story.id, StorySegmentCreate(chapter_id=chapter.id, text="eins"), db)
+        s2 = await stories.create_segment(story.id, StorySegmentCreate(chapter_id=chapter.id, text="zwei"), db)
+        s3 = await stories.create_segment(story.id, StorySegmentCreate(chapter_id=chapter.id, text="drei"), db)
+
+        ordered = await stories.reorder_segments(story.id, [s3.id, s1.id, s2.id], db)
+        assert ordered is not None
+        assert [s.text for s in ordered] == ["drei", "eins", "zwei"]
+        assert [s.order_index for s in ordered] == [0, 1, 2]
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_move_segment_to_other_chapter():
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, _profile = _seed_story_and_voice(db)
+        ch1 = await stories.create_chapter(story.id, StoryChapterCreate(title="A"), db)
+        ch2 = await stories.create_chapter(story.id, StoryChapterCreate(title="B"), db)
+        seg = await stories.create_segment(story.id, StorySegmentCreate(chapter_id=ch1.id, text="beweg mich"), db)
+
+        moved = await stories.move_segment(story.id, seg.id, to_chapter_id=ch2.id, db=db)
+        assert moved is not None
+        assert moved.chapter_id == ch2.id
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
