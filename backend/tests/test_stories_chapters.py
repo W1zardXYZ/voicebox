@@ -340,6 +340,49 @@ async def test_segment_pause_default_update_and_chapter_override():
 
 
 @pytest.mark.asyncio
+async def test_regenerate_segment_replaces_item(monkeypatch):
+    """Regenerating a segment drops the previous story item so only the current
+    version occupies the story/export (old generation stays in history)."""
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, profile = _seed_story_and_voice(db)
+        story.default_voice_profile_id = profile.id
+        db.commit()
+
+        chapter = await stories.create_chapter(
+            story.id, StoryChapterCreate(title="Kapitel A"), db
+        )
+        seg = await stories.create_segment(
+            story.id, StorySegmentCreate(chapter_id=chapter.id, text="Ein Satz."), db
+        )
+
+        async def fake_enqueue(generation_id, coro):
+            pass
+
+        monkeypatch.setattr("backend.services.task_queue.enqueue_generation", fake_enqueue)
+
+        r1 = await stories.generate_segment(
+            story.id, seg.id, StorySegmentGenerateRequest(), db
+        )
+        items1 = db.query(db_models.StoryItem).filter_by(story_segment_id=seg.id).count()
+
+        r2 = await stories.generate_segment(
+            story.id, seg.id, StorySegmentGenerateRequest(), db
+        )
+        items2 = db.query(db_models.StoryItem).filter_by(story_segment_id=seg.id).count()
+
+        assert items1 == 1
+        assert items2 == 1  # replaced, not duplicated
+        assert r1.generation_id != r2.generation_id
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_get_story_materializes_chapters_for_legacy_flat_story():
     """A legacy story (items, no chapters) gets a default chapter on first read
     so the chapter/segment editor always appears (spec §4.6)."""

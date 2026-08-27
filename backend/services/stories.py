@@ -965,10 +965,29 @@ async def export_story_audio(
     if not story:
         return None
 
+    default_pause = _story_pause_ms(story)
+    chapters = _list_chapters(story_id, db)
+    chapter_gap = max(1000, default_pause * 3)
+    # Per-segment pause + chapter index, so a chapter's export is a
+    # self-contained mini-project (concatenated from 0) and chapters are
+    # chained with a clear gap when exporting the whole book.
+    seg_pause: dict[str, int] = {}
+    seg_chapter: dict[str, int] = {}
+    for ci, ch in enumerate(chapters):
+        ch_pause = ch.segment_pause_ms or default_pause
+        for seg in ch.segments:
+            seg_pause[seg.id] = ch_pause
+            seg_chapter[seg.id] = ci
+
     def _load_and_mix(items) -> Optional[tuple]:
-        """Load + trim + mix a list of (StoryItem, Generation) into one waveform."""
-        audio_data = []
+        """Load + trim + concatenate a list of (StoryItem, Generation) into one
+        waveform. Items are joined end-to-end with the configured pause (and a
+        slightly larger gap between chapters) — not placed at absolute
+        timecodes, so a single chapter exports clean with no book-length
+        leading silence."""
+        chunks = []
         sample_rate = 24000  # Default sample rate
+        last_chapter = None
         for item, generation in items:
             resolved_audio_path = generation.audio_path
             if getattr(item, "version_id", None):
@@ -988,8 +1007,6 @@ async def export_story_audio(
 
                 trim_start_ms = getattr(item, "trim_start_ms", 0)
                 trim_end_ms = getattr(item, "trim_end_ms", 0)
-                original_duration_ms = int(generation.duration * 1000)
-                effective_duration_ms = original_duration_ms - trim_start_ms - trim_end_ms
 
                 trim_start_sample = int((trim_start_ms / 1000.0) * sample_rate)
                 trim_end_sample = int((trim_end_ms / 1000.0) * sample_rate)
@@ -1005,32 +1022,23 @@ async def export_story_audio(
                 if volume != 1.0:
                     trimmed_audio = trimmed_audio * volume
 
-                audio_data.append(
-                    {
-                        "audio": trimmed_audio,
-                        "start_time_ms": item.start_time_ms,
-                        "duration_ms": effective_duration_ms,
-                    }
-                )
+                seg_id = getattr(item, "story_segment_id", None)
+                ch_idx = seg_chapter.get(seg_id)
+                if chunks:
+                    if ch_idx is not None and last_chapter is not None and ch_idx != last_chapter:
+                        silence_ms = chapter_gap
+                    else:
+                        silence_ms = seg_pause.get(seg_id, default_pause)
+                    chunks.append(np.zeros(int((silence_ms / 1000.0) * sample_rate), dtype=np.float32))
+                if ch_idx is not None:
+                    last_chapter = ch_idx
+                chunks.append(trimmed_audio)
             except Exception:
                 continue
 
-        if not audio_data:
+        if not chunks:
             return None
-
-        max_end_time_ms = max(
-            (data["start_time_ms"] + data["duration_ms"] for data in audio_data), default=0
-        )
-        total_samples = int((max_end_time_ms / 1000.0) * sample_rate)
-        final_audio = np.zeros(total_samples, dtype=np.float32)
-
-        for data in audio_data:
-            audio = data["audio"]
-            start_sample = int((data["start_time_ms"] / 1000.0) * sample_rate)
-            end_sample = min(start_sample + len(audio), total_samples)
-            if start_sample < total_samples:
-                final_audio[start_sample:end_sample] += audio[: end_sample - start_sample]
-
+        final_audio = np.concatenate(chunks)
         max_val = np.abs(final_audio).max()
         if max_val > 1.0:
             final_audio = final_audio / max_val
@@ -1965,6 +1973,12 @@ async def generate_segment(
     segment.updated_at = datetime.utcnow()
     db.commit()
 
+    # Version management: drop any previous placement for this segment so only
+    # the current generation occupies the story/export. The old generation
+    # stays in history (archived) but is no longer part of the timeline.
+    db.query(DBStoryItem).filter_by(story_segment_id=segment.id).delete()
+    db.flush()
+
     _append_segment_story_item(
         db,
         story_id=story_id,
@@ -2077,6 +2091,10 @@ async def generate_many_segments(
         segment.status = "queued"
         segment.updated_at = datetime.utcnow()
         db.commit()
+
+        # Version management: drop any previous placement for this segment.
+        db.query(DBStoryItem).filter_by(story_segment_id=segment.id).delete()
+        db.flush()
 
         _append_segment_story_item(
             db,

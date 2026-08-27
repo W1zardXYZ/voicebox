@@ -1,23 +1,27 @@
+import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
 import { useGenerationStore } from '@/stores/generationStore';
 import { usePlayerStore } from '@/stores/playerStore';
 
-interface GenerationStatusEvent {
-  id: string;
-  status: 'loading_model' | 'generating' | 'completed' | 'failed' | 'not_found';
-  duration?: number;
-  error?: string;
-  source?: string;
-  // Live progress (spec §6.2.2)
-  state?: 'queued' | 'loading_model' | 'generating';
+interface QueueItem {
+  generation_id: string;
+  state?: string;
   progress?: number | null;
   chunk_index?: number | null;
   chunk_count?: number | null;
   message?: string | null;
+}
+
+interface DoneEvent {
+  type: 'done';
+  id: string;
+  status: 'completed' | 'failed' | 'not_found' | string;
+  duration?: number | null;
+  error?: string | null;
+  source?: string | null;
 }
 
 // Agent-initiated generations are played by the floating pill, not the
@@ -25,11 +29,11 @@ interface GenerationStatusEvent {
 const AGENT_SOURCES = new Set(['mcp', 'rest']);
 
 /**
- * Subscribes to SSE for all pending generations. When a generation completes,
- * invalidates the history query, removes it from pending, and auto-plays
- * if the player is idle. While a generation is active, live progress
- * (state / progress / chunk counters / message) is written to the
- * generation store for the queue panel (spec §6).
+ * Subscribes to a single queue SSE stream (GET /generate/queue/stream) instead
+ * of opening one EventSource per generation — the browser caps ~6 connections
+ * per host, which froze the queue beyond a handful of items. The stream carries
+ * per-item progress for the whole queue and one-off `done` events when a
+ * generation leaves, so status/completion handling stays correct end-to-end.
  */
 export function useGenerationProgress() {
   const queryClient = useQueryClient();
@@ -44,151 +48,120 @@ export function useGenerationProgress() {
   const { settings: genSettings } = useGenerationSettings();
   const autoplayOnGenerate = genSettings?.autoplay_on_generate ?? true;
 
-  // Keep refs to avoid stale closures in EventSource handlers
   const isPlayingRef = useRef(isPlaying);
   const autoplayRef = useRef(autoplayOnGenerate);
   isPlayingRef.current = isPlaying;
   autoplayRef.current = autoplayOnGenerate;
 
-  // Track active EventSource instances
-  const eventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+  const sourceRef = useRef<EventSource | null>(null);
 
-  // Unmount-only cleanup — close all SSE connections when the hook is torn down
-  useEffect(() => {
-    const sources = eventSourcesRef.current;
-    return () => {
-      for (const source of sources.values()) {
-        source.close();
+  const handleDone = useCallback(
+    (data: DoneEvent) => {
+      const id = data.id;
+      removePendingGeneration(id);
+      removeGenerationProgress(id);
+
+      // Refetch history + always refresh the story (segment statuses + timeline).
+      queryClient.refetchQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({ queryKey: ['stories'] });
+
+      if (data.status === 'completed') {
+        const storyId = removePendingStoryAdd(id);
+        if (storyId) {
+          apiClient
+            .addStoryItem(storyId, { generation_id: id })
+            .then(() => {
+              queryClient.invalidateQueries({ queryKey: ['stories'] });
+              queryClient.invalidateQueries({ queryKey: ['stories', storyId] });
+              toast({
+                title: 'Added to story',
+                description: data.duration
+                  ? `Audio generated (${data.duration.toFixed(2)}s) and added to story`
+                  : 'Audio generated and added to story',
+              });
+            })
+            .catch(() => {
+              toast({
+                title: 'Generation complete',
+                description: 'Audio generated but failed to add to story',
+                variant: 'destructive',
+              });
+            });
+        }
+
+        // Auto-play if enabled and nothing is currently playing. Skip
+        // agent-initiated sources — the floating pill plays those itself.
+        const isAgentSpeak = data.source ? AGENT_SOURCES.has(data.source) : false;
+        if (autoplayRef.current && !isPlayingRef.current && !isAgentSpeak) {
+          setAudioWithAutoPlay(apiClient.getAudioUrl(id), id, '', '');
+        }
+      } else if (data.status === 'failed' || data.status === 'not_found') {
+        removePendingStoryAdd(id);
+        toast({
+          title: data.status === 'not_found' ? 'Generation not found' : 'Generation failed',
+          description: data.error || 'An error occurred during generation',
+          variant: 'destructive',
+        });
       }
-      sources.clear();
-    };
-  }, []);
+    },
+    [queryClient, removePendingGeneration, removeGenerationProgress, removePendingStoryAdd, toast, setAudioWithAutoPlay],
+  );
+
+  const handleDoneRef = useRef(handleDone);
+  handleDoneRef.current = handleDone;
 
   useEffect(() => {
-    const currentSources = eventSourcesRef.current;
-
-    // Close SSE connections for IDs no longer pending
-    for (const [id, source] of currentSources.entries()) {
-      if (!pendingIds.has(id)) {
-        source.close();
-        currentSources.delete(id);
-      }
-    }
-
-    // Open SSE connections for new pending IDs
-    for (const id of pendingIds) {
-      if (currentSources.has(id)) continue;
-
-      const url = apiClient.getGenerationStatusUrl(id);
-      const source = new EventSource(url);
+    const shouldOpen = pendingIds.size > 0;
+    if (shouldOpen) {
+      if (sourceRef.current) return; // already connected
+      const source = new EventSource(apiClient.getGenerationQueueStreamUrl());
+      sourceRef.current = source;
 
       source.onmessage = (event) => {
         try {
-          const data: GenerationStatusEvent = JSON.parse(event.data);
-
-          // Forward live progress to the store for the queue panel.
-          if (
-            data.state ||
-            data.progress !== undefined ||
-            data.chunk_index !== undefined ||
-            data.chunk_count !== undefined ||
-            data.message !== undefined
-          ) {
-            setGenerationProgress(id, {
-              state: data.state,
-              progress: data.progress,
-              chunk_index: data.chunk_index,
-              chunk_count: data.chunk_count,
-              message: data.message,
-            });
-          }
-
-          if (data.status === 'completed') {
-            source.close();
-            currentSources.delete(id);
-            removePendingGeneration(id);
-            removeGenerationProgress(id);
-
-            // Refetch history to pick up the completed generation
-            queryClient.refetchQueries({ queryKey: ['history'] });
-
-            // Always refresh the story so its segment statuses and the
-            // chapter-scoped timeline reflect the finished clip — even for
-            // segments whose item was already placed at enqueue time.
-            queryClient.invalidateQueries({ queryKey: ['stories'] });
-
-            // If this generation was queued for a story, add it now
-            const storyId = removePendingStoryAdd(id);
-            if (storyId) {
-              apiClient
-                .addStoryItem(storyId, { generation_id: id })
-                .then(() => {
-                  queryClient.invalidateQueries({ queryKey: ['stories'] });
-                  queryClient.invalidateQueries({ queryKey: ['stories', storyId] });
-                  toast({
-                    title: 'Added to story',
-                    description: data.duration
-                      ? `Audio generated (${data.duration.toFixed(2)}s) and added to story`
-                      : 'Audio generated and added to story',
-                  });
-                })
-                .catch(() => {
-                  toast({
-                    title: 'Generation complete',
-                    description: 'Audio generated but failed to add to story',
-                    variant: 'destructive',
-                  });
+          const data = JSON.parse(event.data);
+          if (data.type === 'done') {
+            handleDoneRef.current(data);
+          } else if (Array.isArray(data.items)) {
+            for (const item of data.items as QueueItem[]) {
+              if (
+                item.state !== undefined ||
+                item.progress !== undefined ||
+                item.chunk_index !== undefined ||
+                item.chunk_count !== undefined ||
+                item.message !== undefined
+              ) {
+                setGenerationProgress(item.generation_id, {
+                  state: item.state as 'queued' | 'loading_model' | 'generating',
+                  progress: item.progress,
+                  chunk_index: item.chunk_index,
+                  chunk_count: item.chunk_count,
+                  message: item.message,
                 });
+              }
             }
-
-            // Auto-play if enabled and nothing is currently playing.
-            // Skip agent-initiated sources — the floating pill window
-            // plays those itself.
-            const isAgentSpeak = data.source ? AGENT_SOURCES.has(data.source) : false;
-            if (autoplayRef.current && !isPlayingRef.current && !isAgentSpeak) {
-              const genAudioUrl = apiClient.getAudioUrl(id);
-              setAudioWithAutoPlay(genAudioUrl, id, '', '');
-            }
-          } else if (data.status === 'failed' || data.status === 'not_found') {
-            source.close();
-            currentSources.delete(id);
-            removePendingGeneration(id);
-            removeGenerationProgress(id);
-            removePendingStoryAdd(id);
-
-            queryClient.refetchQueries({ queryKey: ['history'] });
-
-            toast({
-              title: data.status === 'not_found' ? 'Generation not found' : 'Generation failed',
-              description: data.error || 'An error occurred during generation',
-              variant: 'destructive',
-            });
           }
         } catch {
-          // Ignore parse errors from heartbeats etc
+          // Ignore parse errors from heartbeats etc.
         }
       };
 
       source.onerror = () => {
-        // SSE connection dropped — clean up and refresh history so any
-        // completed/failed generation still appears in the list
         source.close();
-        currentSources.delete(id);
-        removePendingGeneration(id);
-        removeGenerationProgress(id);
+        sourceRef.current = null;
         queryClient.refetchQueries({ queryKey: ['history'] });
       };
-
-      currentSources.set(id, source);
+    } else if (sourceRef.current) {
+      sourceRef.current.close();
+      sourceRef.current = null;
     }
-  }, [
-    pendingIds,
-    removePendingGeneration,
-    removePendingStoryAdd,
-    removeGenerationProgress,
-    setGenerationProgress,
-    queryClient,
-    toast,
-    setAudioWithAutoPlay,
-  ]);
+  }, [pendingIds.size, setGenerationProgress, queryClient]);
+
+  // Unmount-only cleanup — close the single stream.
+  useEffect(() => {
+    return () => {
+      sourceRef.current?.close();
+      sourceRef.current = null;
+    };
+  }, []);
 }

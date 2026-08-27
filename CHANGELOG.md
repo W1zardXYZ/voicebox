@@ -184,6 +184,23 @@ models actually run on this machine.
   collapsed (count + average %) and an expandable list with per-item progress.
   Bottom-right, collapsible from either state.
 
+### Stories — chapter export, segment versions & queue scale
+
+- **Chapter = self-contained mini-project.** Export now *concatenates* items
+  sequentially with the configured pause instead of mixing at absolute
+  timecodes. A per-chapter file is just that chapter (no book-length leading
+  silence), and the whole book is the chapters chained together. Fixes
+  "chapterized output writes hour-long files".
+- **Segment version management.** Regenerating a segment now drops the previous
+  story item so only the current version occupies the story/export; the old
+  generation stays in history (archived) instead of being duplicated into the
+  export.
+- **Queue no longer freezes past ~5 items.** The root cause was one EventSource
+  per generation hitting the browser's ~6-connections-per-host cap. Progress and
+  completion now come from a single `GET /generate/queue/stream` SSE that
+  streams the whole queue (per-item progress) plus one-off `done` events, so any
+  number of generations can be queued and tracked at once.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

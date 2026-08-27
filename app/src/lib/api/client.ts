@@ -401,6 +401,11 @@ class ApiClient {
     return `${this.getBaseUrl()}/generate/${generationId}/status`;
   }
 
+  // Single SSE stream for the whole generation queue (all items + done events).
+  getGenerationQueueStreamUrl(): string {
+    return `${this.getBaseUrl()}/generate/queue/stream`;
+  }
+
   // Generation queue (spec §6) — ordered list of queued/running generations
   // with live progress.
   async getGenerationQueue(): Promise<GenerationQueueResponse> {

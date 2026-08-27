@@ -340,12 +340,79 @@ async def get_generation_queue(db: Session = Depends(get_db)):
     return {"items": entries}
 
 
-@router.get("/generate/{generation_id}/status")
-async def get_generation_status(generation_id: str, db: Session = Depends(get_db)):
-    """SSE endpoint that streams generation status updates."""
-    import json
+@router.get("/generate/queue/stream")
+async def generation_queue_stream(db: Session = Depends(get_db)):
+    """SSE that streams the whole generation queue (all items + per-item
+    progress) over a single connection, plus one-off ``done`` events when a
+    generation leaves the queue (so the UI can invalidate / autoplay without
+    opening an EventSource per generation — the browser caps ~6 connections per
+    host, which is what froze the queue beyond a handful of items)."""
 
-    task_manager = get_task_manager()
+    async def event_stream():
+        import json as _json
+        import asyncio
+
+        from ..services.task_queue import get_queue_snapshot
+
+        task_manager = get_task_manager()
+        previous_ids = set()
+        while True:
+            db.expire_all()
+            snapshot = get_queue_snapshot()
+            entries = []
+            active_ids = set()
+            for entry in snapshot:
+                gen_id = entry["generation_id"]
+                active_ids.add(gen_id)
+                gen = db.query(DBGeneration).filter_by(id=gen_id).first()
+                task = task_manager.get_active_generation(gen_id)
+                progress = task_manager.get_generation_progress(gen_id)
+
+                text_preview = ""
+                if gen is not None and gen.text:
+                    text_preview = gen.text[:80]
+                elif task is not None:
+                    text_preview = task.text_preview
+
+                entries.append(
+                    {
+                        "generation_id": gen_id,
+                        "profile_id": (
+                            gen.profile_id if gen is not None else (task.profile_id if task else None)
+                        ),
+                        "text_preview": text_preview,
+                        "state": (progress or {}).get("state") or entry["state"],
+                        "progress": (progress or {}).get("progress"),
+                        "chunk_index": (progress or {}).get("chunk_index"),
+                        "chunk_count": (progress or {}).get("chunk_count"),
+                        "message": (progress or {}).get("message"),
+                        "enqueued_at": task.started_at.isoformat() if task else None,
+                    }
+                )
+
+            # Emit one-off done events for generations that left the queue.
+            for gen_id in previous_ids - active_ids:
+                gen = db.query(DBGeneration).filter_by(id=gen_id).first()
+                yield (
+                    "data: "
+                    + _json.dumps(
+                        {
+                            "type": "done",
+                            "id": gen_id,
+                            "status": gen.status if gen else "not_found",
+                            "duration": gen.duration if gen else None,
+                            "error": gen.error if gen else None,
+                            "source": gen.source if gen else None,
+                        }
+                    )
+                    + "\n\n"
+                )
+            previous_ids = active_ids
+
+            yield "data: " + _json.dumps({"items": entries}) + "\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     async def event_stream():
         try:
