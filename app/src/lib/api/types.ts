@@ -412,6 +412,9 @@ export interface ActiveTasksResponse {
 export interface StoryCreate {
   name: string;
   description?: string;
+  default_engine?: string | null;
+  default_model_size?: string | null;
+  default_language?: string | null;
 }
 
 export interface StoryResponse {
@@ -421,6 +424,9 @@ export interface StoryResponse {
   created_at: string;
   updated_at: string;
   item_count: number;
+  default_engine?: string | null;
+  default_model_size?: string | null;
+  default_language?: string | null;
 }
 
 export interface StoryItemDetail {
@@ -428,6 +434,8 @@ export interface StoryItemDetail {
   story_id: string;
   generation_id: string;
   version_id?: string;
+  /** Trace-back to the source segment (for chapter-scoped timelines). */
+  story_segment_id?: string | null;
   start_time_ms: number;
   track: number;
   trim_start_ms: number;
@@ -520,6 +528,10 @@ export interface StoryDetailResponse {
   created_at: string;
   updated_at: string;
   items: StoryItemDetail[];
+  /** Per-project generation defaults. */
+  default_engine?: string | null;
+  default_model_size?: string | null;
+  default_language?: string | null;
   /** Optional chapter → segment hierarchy (spec §4); empty for flat stories. */
   chapters: StoryChapter[];
   /** Per-project characters/speakers; narrator = first (or is_narrator). */

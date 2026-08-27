@@ -7,6 +7,7 @@ import { GenerationQueuePanel } from '@/components/AppFrame/GenerationQueuePanel
 import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { cn } from '@/lib/utils/cn';
 import { useStoryStore } from '@/stores/storyStore';
+import { usePlayerStore } from '@/stores/playerStore';
 import { useStory } from '@/lib/hooks/useStories';
 
 interface AppFrameProps {
@@ -18,10 +19,32 @@ export function AppFrame({ children }: AppFrameProps) {
   const isStoriesRoute = routerState.location.pathname === '/stories';
 
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
+  const activeChapterId = useStoryStore((state) => state.activeChapterId);
+  const audioUrl = usePlayerStore((state) => state.audioUrl);
   const { data: story } = useStory(selectedStoryId);
 
-  // Show track editor when on stories route with a selected story that has items
-  const showTrackEditor = isStoriesRoute && selectedStoryId && story && story.items.length > 0;
+  // Scope the footer timeline to the chapter being edited: when the active
+  // chapter has segments, only show the items traced back to them. Flat
+  // (legacy) stories with no chapters keep showing every item.
+  const activeChapter =
+    story?.chapters.find((c) => c.id === activeChapterId) ?? story?.chapters[0] ?? null;
+  const activeSegmentIds = new Set(activeChapter?.segments.map((s) => s.id) ?? []);
+  const timelineItems =
+    !story || activeSegmentIds.size === 0
+      ? story?.items ?? []
+      : (story.items ?? []).filter(
+          (item) => item.story_segment_id && activeSegmentIds.has(item.story_segment_id),
+        );
+
+  // Show the track editor on the stories route with a selected story that has
+  // (chapter-scoped) items — unless the user is listening to a single clip, in
+  // which case the AudioPlayer bar takes over.
+  const showTrackEditor =
+    isStoriesRoute &&
+    !!selectedStoryId &&
+    !!story &&
+    timelineItems.length > 0 &&
+    !audioUrl;
 
   return (
     <div
@@ -31,7 +54,7 @@ export function AppFrame({ children }: AppFrameProps) {
       <AudioKeepAlive />
       {children}
       {showTrackEditor ? (
-        <StoryTrackEditor storyId={story.id} items={story.items} />
+        <StoryTrackEditor storyId={story!.id} items={timelineItems} />
       ) : (
         <AudioPlayer />
       )}

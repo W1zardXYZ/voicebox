@@ -1,4 +1,4 @@
-import { Loader2, Play, Plus, Trash2, Users } from 'lucide-react';
+import { Headphones, Loader2, Play, Plus, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +21,10 @@ import {
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/components/ui/use-toast';
+import { apiClient } from '@/lib/api/client';
 import type { StoryCharacter, StoryDetailResponse, StorySegment } from '@/lib/api/types';
+import { getLanguageOptionsForEngine } from '@/lib/constants/languages';
+import { usePlayerStore } from '@/stores/playerStore';
 import {
   useCreateCharacter,
   useDeleteCharacter,
@@ -35,6 +38,17 @@ import {
 import { useProfiles } from '@/lib/hooks/useProfiles';
 import { cn } from '@/lib/utils/cn';
 
+/** Engine choices with their sizes (empty = no model-size option). */
+const ENGINE_CHOICES: { engine: string; label: string; sizes?: string[] }[] = [
+  { engine: 'qwen', label: 'Qwen3-TTS', sizes: ['1.7B', '0.6B'] },
+  { engine: 'qwen_custom_voice', label: 'Qwen CustomVoice', sizes: ['1.7B', '0.6B'] },
+  { engine: 'luxtts', label: 'LuxTTS' },
+  { engine: 'chatterbox', label: 'Chatterbox' },
+  { engine: 'chatterbox_turbo', label: 'Chatterbox Turbo' },
+  { engine: 'tada', label: 'TADA', sizes: ['1B', '3B'] },
+  { engine: 'kokoro', label: 'Kokoro 82M' },
+];
+
 const STATUS_STYLE: Record<StorySegment['status'], string> = {
   draft: 'bg-muted text-muted-foreground',
   queued: 'bg-muted text-muted-foreground',
@@ -42,6 +56,9 @@ const STATUS_STYLE: Record<StorySegment['status'], string> = {
   completed: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
   error: 'bg-destructive/15 text-destructive border-destructive/30',
 };
+
+/** Select sentinel for "use the project default" in override dropdowns. */
+const DEFAULT = '__default__';
 
 /**
  * The right-side settings panel (spec: "clip" + "project" tabs mirroring
@@ -69,12 +86,55 @@ export function SegmentSettingsPanel({
   const createCharacter = useCreateCharacter();
   const updateCharacter = useUpdateCharacter();
   const deleteCharacter = useDeleteCharacter();
+  const playerStore = usePlayerStore();
 
   const [tab, setTab] = useState<'clip' | 'project'>('clip');
   const [renameValue, setRenameValue] = useState(story.name);
   const [newCharName, setNewCharName] = useState('');
   const [newCharProfile, setNewCharProfile] = useState<string>('none');
   const [charDialogOpen, setCharDialogOpen] = useState(false);
+
+  const listen = () => {
+    if (!selectedSegment?.generation_id) return;
+    playerStore.setAudioWithAutoPlay(
+      apiClient.getAudioUrl(selectedSegment.generation_id),
+      selectedSegment.generation_id,
+      selectedSegment.profile_id ?? null,
+      selectedSegment.text,
+    );
+  };
+  const canListen = !!selectedSegment?.generation_id && selectedSegment.status === 'completed';
+
+  // Per-segment override: null → fall back to the project default.
+  const commitSegmentModel = (patch: Partial<{ engine: string | null; model_size: string | null; language: string | null }>) => {
+    if (!selectedSegment) return;
+    updateSegment.mutate(
+      { storyId: story.id, segmentId: selectedSegment.id, data: patch },
+      { onError: (e) => toast({ title: t('segments.saveFailed'), description: String(e), variant: 'destructive' }) },
+    );
+  };
+
+  // Project-wide default engine/model/language.
+  const commitProjectDefault = (patch: Partial<{ default_engine: string | null; default_model_size: string | null; default_language: string | null }>) => {
+    updateStory.mutate(
+      {
+        storyId: story.id,
+        data: {
+          name: story.name,
+          description: story.description,
+          default_engine: story.default_engine,
+          default_model_size: story.default_model_size,
+          default_language: story.default_language,
+          ...patch,
+        },
+      },
+      { onError: (e) => toast({ title: t('segments.saveFailed'), description: String(e), variant: 'destructive' }) },
+    );
+  };
+
+  const activeEngine = (selectedSegment?.engine ?? story.default_engine) || 'qwen';
+  const engineChoice = ENGINE_CHOICES.find((c) => c.engine === activeEngine);
+  const effectiveLangOptions = getLanguageOptionsForEngine(activeEngine);
 
   const assignCharacter = (characterId: string) => {
     if (!selectedSegment) return;
@@ -231,6 +291,74 @@ export function SegmentSettingsPanel({
                 ))}
               </div>
 
+              {/* Model override for this clip (engine/model/language) */}
+              <div className="space-y-1.5 pt-1">
+                <Label className="text-xs flex items-center gap-1">
+                  {t('settings.segmentOverride')}
+                </Label>
+                <Select
+                  value={selectedSegment.engine ?? DEFAULT}
+                  onValueChange={(v) => commitSegmentModel({ engine: v === DEFAULT ? null : v })}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                    {ENGINE_CHOICES.map((c) => (
+                      <SelectItem key={c.engine} value={c.engine}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {engineChoice?.sizes?.length ? (
+                  <Select
+                    value={selectedSegment.model_size ?? DEFAULT}
+                    onValueChange={(v) => commitSegmentModel({ model_size: v === DEFAULT ? null : v })}
+                  >
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                      {engineChoice!.sizes!.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+                <Select
+                  value={selectedSegment.language ?? DEFAULT}
+                  onValueChange={(v) => commitSegmentModel({ language: v === DEFAULT ? null : v })}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                    {effectiveLangOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                className="w-full"
+                variant="outline"
+                size="sm"
+                onClick={listen}
+                disabled={!canListen}
+                title={canListen ? t('settings.listen') : t('segments.generateFirst')}
+              >
+                <Headphones className="h-3.5 w-3.5 mr-1.5" />
+                {t('settings.listen')}
+              </Button>
               <Button
                 className="w-full"
                 size="sm"
@@ -275,6 +403,61 @@ export function SegmentSettingsPanel({
                 }}
                 className="h-8 text-xs"
               />
+            </div>
+
+            {/* Project-wide default engine/model/language */}
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-xs">{t('settings.projectDefaults')}</Label>
+              <Select
+                value={story.default_engine ?? DEFAULT}
+                onValueChange={(v) => commitProjectDefault({ default_engine: v === DEFAULT ? null : v })}
+              >
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                  {ENGINE_CHOICES.map((c) => (
+                    <SelectItem key={c.engine} value={c.engine}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {ENGINE_CHOICES.find((c) => c.engine === (story.default_engine ?? 'qwen'))?.sizes?.length ? (
+                <Select
+                  value={story.default_model_size ?? DEFAULT}
+                  onValueChange={(v) => commitProjectDefault({ default_model_size: v === DEFAULT ? null : v })}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                    {ENGINE_CHOICES.find((c) => c.engine === (story.default_engine ?? 'qwen'))!.sizes!.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <Select
+                value={story.default_language ?? DEFAULT}
+                onValueChange={(v) => commitProjectDefault({ default_language: v === DEFAULT ? null : v })}
+              >
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DEFAULT}>{t('settings.useDefault')}</SelectItem>
+                  {getLanguageOptionsForEngine(story.default_engine ?? 'qwen').map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="pt-1">

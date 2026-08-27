@@ -7,6 +7,10 @@ interface StoryPlaybackState {
   setSelectedStoryId: (id: string | null) => void;
   selectedClipId: string | null;
   setSelectedClipId: (id: string | null) => void;
+  // Active chapter within the open story — shared so the footer timeline can
+  // scope its items to the chapter being edited.
+  activeChapterId: string | null;
+  setActiveChapterId: (id: string | null) => void;
   // When the user explicitly navigates to the project list (back button),
   // suppress the auto-select-first-story effect so the list stays visible.
   suppressAutoSelect: boolean;
@@ -43,6 +47,8 @@ export const useStoryStore = create<StoryPlaybackState>((set, get) => ({
   setSelectedStoryId: (id) => set({ selectedStoryId: id }),
   selectedClipId: null,
   setSelectedClipId: (id) => set({ selectedClipId: id }),
+  activeChapterId: null,
+  setActiveChapterId: (id) => set({ activeChapterId: id }),
   suppressAutoSelect: false,
   setSuppressAutoSelect: (value) => set({ suppressAutoSelect: value }),
 

@@ -8,12 +8,13 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowLeft, Download, FileText, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, FileText, GripVertical, Headphones, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
+import { apiClient } from '@/lib/api/client';
 import type { StorySegment } from '@/lib/api/types';
 import {
   useCreateSegment,
@@ -25,6 +26,7 @@ import {
   useUpdateSegment,
 } from '@/lib/hooks/useStories';
 import { useStoryStore } from '@/stores/storyStore';
+import { usePlayerStore } from '@/stores/playerStore';
 import { cn } from '@/lib/utils/cn';
 import { ChapterList } from './ChapterList';
 import { MarkdownImportDialog } from './MarkdownImportDialog';
@@ -65,6 +67,7 @@ function SegmentDocumentRow({
   const generateSegment = useGenerateSegment();
   const deleteSegment = useDeleteSegment();
   const updateSegment = useUpdateSegment();
+  const playerStore = usePlayerStore();
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: segment.id,
@@ -147,6 +150,26 @@ function SegmentDocumentRow({
           className="h-6 w-6 grid place-items-center text-muted-foreground hover:text-accent"
           onClick={(e) => {
             e.stopPropagation();
+            if (segment.generation_id && segment.status === 'completed') {
+              playerStore.setAudioWithAutoPlay(
+                apiClient.getAudioUrl(segment.generation_id),
+                segment.generation_id,
+                segment.profile_id ?? null,
+                segment.text,
+              );
+            }
+          }}
+          disabled={!(segment.generation_id && segment.status === 'completed')}
+          title={t('settings.listen')}
+          aria-label={t('settings.listen')}
+        >
+          <Headphones className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="h-6 w-6 grid place-items-center text-muted-foreground hover:text-accent"
+          onClick={(e) => {
+            e.stopPropagation();
             generateSegment.mutate({ storyId, segmentId: segment.id });
           }}
           disabled={isBusy}
@@ -174,18 +197,27 @@ export function StoryContent() {
   const selectedStoryId = useStoryStore((state) => state.selectedStoryId);
   const setSelectedStoryId = useStoryStore((state) => state.setSelectedStoryId);
   const setSuppressAutoSelect = useStoryStore((state) => state.setSuppressAutoSelect);
+  const activeChapterId = useStoryStore((state) => state.activeChapterId);
+  const setActiveChapterId = useStoryStore((state) => state.setActiveChapterId);
   const { data: story, isLoading } = useStory(selectedStoryId);
   const exportAudio = useExportStoryAudio();
   const createSegment = useCreateSegment();
   const reorderSegments = useReorderSegments();
 
   const [importOpen, setImportOpen] = useState(false);
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [newSegmentText, setNewSegmentText] = useState('');
 
   const activeChapter =
     story?.chapters.find((c) => c.id === activeChapterId) ?? story?.chapters[0] ?? null;
+
+  // Keep the store's active chapter in sync with the visible default so the
+  // footer timeline tracks the chapter being edited.
+  useEffect(() => {
+    if (story && story.chapters.length > 0 && !activeChapterId) {
+      setActiveChapterId(story.chapters[0].id);
+    }
+  }, [story, activeChapterId, setActiveChapterId]);
 
   const sortedSegments = useMemo(() => {
     if (!activeChapter) return [];

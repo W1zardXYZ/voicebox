@@ -242,6 +242,14 @@ def _migrate_story_chapters_segments(engine, inspector, tables: set[str]) -> Non
                 "default_voice_profile_id VARCHAR",
                 "default_voice_profile_id",
             )
+        # Per-project generation defaults (fall back when a segment has no
+        # engine/model_size/language of its own).
+        if "default_engine" not in columns:
+            _add_column(engine, "stories", "default_engine VARCHAR", "default_engine")
+        if "default_model_size" not in columns:
+            _add_column(engine, "stories", "default_model_size VARCHAR", "default_model_size")
+        if "default_language" not in columns:
+            _add_column(engine, "stories", "default_language VARCHAR", "default_language")
 
 
 def _migrate_profiles(engine, inspector, tables: set[str]) -> None:

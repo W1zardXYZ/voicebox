@@ -1205,7 +1205,14 @@
     "voice": "Voice",
     "noVoice": "No voice",
     "saveCharacter": "Save character",
-    "toggleNarrator": "Set as narrator"
+    "toggleNarrator": "Set as narrator",
+    "listen": "Ascolta",
+    "segmentOverride": "Override del modello",
+    "engine": "Modello",
+    "modelSize": "Dimensione del modello",
+    "languageLabel": "Lingua",
+    "useDefault": "Predefinito del progetto",
+    "projectDefaults": "Modello e lingua predefiniti"
   },
   "models": {
     "title": "Modelli",
@@ -1320,7 +1327,8 @@
     "fadeOut": "Fade out",
     "generateAll": "Generate all",
     "perSegment": "per segment",
-    "delete": "Delete segment"
+    "delete": "Delete segment",
+    "generateFirst": "Genera prima questo segmento, poi ascolta"
   },
   "chapters": {
     "title": "Chapters",

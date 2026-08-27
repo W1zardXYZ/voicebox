@@ -1205,7 +1205,14 @@
     "voice": "Voice",
     "noVoice": "No voice",
     "saveCharacter": "Save character",
-    "toggleNarrator": "Set as narrator"
+    "toggleNarrator": "Set as narrator",
+    "listen": "듣기",
+    "segmentOverride": "모델 재정의",
+    "engine": "모델",
+    "modelSize": "모델 크기",
+    "languageLabel": "언어",
+    "useDefault": "프로젝트 기본값",
+    "projectDefaults": "기본 모델 및 언어"
   },
   "models": {
     "title": "모델",
@@ -1320,7 +1327,8 @@
     "fadeOut": "Fade out",
     "generateAll": "Generate all",
     "perSegment": "per segment",
-    "delete": "Delete segment"
+    "delete": "Delete segment",
+    "generateFirst": "먼저 이 세그먼트를 생성한 뒤 듣기"
   },
   "chapters": {
     "title": "Chapters",

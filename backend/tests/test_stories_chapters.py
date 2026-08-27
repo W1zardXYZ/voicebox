@@ -233,6 +233,78 @@ async def test_generate_segment_requires_voice():
 
 
 @pytest.mark.asyncio
+async def test_generate_segment_uses_project_default_engine_and_language(monkeypatch):
+    """Project-wide default engine/language apply when a segment doesn't override
+    them, and an explicit per-segment override wins."""
+    from backend.services import stories
+
+    factory, tmp = _fresh_session()
+    try:
+        db = factory()
+        story, profile = _seed_story_and_voice(db)
+        story.default_voice_profile_id = profile.id
+        story.default_engine = "kokoro"
+        story.default_language = "de"
+        db.commit()
+
+        chapter = await stories.create_chapter(
+            story.id, StoryChapterCreate(title="Kapitel A"), db
+        )
+        seg = await stories.create_segment(
+            story.id,
+            StorySegmentCreate(chapter_id=chapter.id, text="Ein Satz."),
+            db,
+        )
+
+        async def fake_enqueue(generation_id, coro):
+            pass
+
+        monkeypatch.setattr(
+            "backend.services.task_queue.enqueue_generation", fake_enqueue
+        )
+
+        import backend.services.history as history_service
+
+        real_create = history_service.create_generation
+        create_calls = []
+
+        async def spy_create(**kwargs):
+            create_calls.append(
+                {
+                    "engine": kwargs.get("engine"),
+                    "language": kwargs.get("language"),
+                }
+            )
+            return await real_create(**kwargs)
+
+        monkeypatch.setattr(
+            "backend.services.history.create_generation", spy_create
+        )
+
+        await stories.generate_segment(
+            story.id, seg.id, StorySegmentGenerateRequest(), db
+        )
+        assert create_calls, "create_generation should have been called"
+        assert create_calls[0]["engine"] == "kokoro"
+        assert create_calls[0]["language"] == "de"
+
+        # Explicit per-segment override wins over the project default.
+        seg_row = db.query(db_models.StorySegment).filter_by(id=seg.id).first()
+        seg_row.engine = "chatterbox"
+        seg_row.language = "en"
+        db.commit()
+        create_calls.clear()
+        await stories.generate_segment(
+            story.id, seg.id, StorySegmentGenerateRequest(), db
+        )
+        assert create_calls[0]["engine"] == "chatterbox"
+        assert create_calls[0]["language"] == "en"
+        db.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_get_story_materializes_chapters_for_legacy_flat_story():
     """A legacy story (items, no chapters) gets a default chapter on first read
     so the chapter/segment editor always appears (spec §4.6)."""

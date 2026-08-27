@@ -75,6 +75,7 @@ def _build_item_detail(
         story_id=item.story_id,
         generation_id=item.generation_id,
         version_id=getattr(item, "version_id", None),
+        story_segment_id=getattr(item, "story_segment_id", None),
         start_time_ms=item.start_time_ms,
         track=item.track,
         trim_start_ms=getattr(item, "trim_start_ms", 0),
@@ -114,6 +115,9 @@ async def create_story(
         id=str(uuid.uuid4()),
         name=data.name,
         description=data.description,
+        default_engine=data.default_engine,
+        default_model_size=data.default_model_size,
+        default_language=data.default_language,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -232,8 +236,12 @@ async def update_story(
     if not story:
         return None
 
-    story.name = data.name
-    story.description = data.description
+    # Partial update: only apply fields the caller actually sent, so a rename
+    # doesn't silently reset the project's default engine/model/language.
+    payload = data.model_dump(exclude_unset=True)
+    for field in ("name", "description", "default_engine", "default_model_size", "default_language"):
+        if field in payload:
+            setattr(story, field, payload[field])
     story.updated_at = datetime.utcnow()
 
     db.commit()
@@ -1587,29 +1595,32 @@ async def update_segment(
     )
     if not segment:
         return None
-    if data.text is not None:
-        segment.text = data.text
-    if data.profile_id is not None:
-        segment.profile_id = data.profile_id
-    if data.character_id is not None:
-        segment.character_id = data.character_id
+    # Partial update via exclude_unset: an explicitly-sent null clears an
+    # override (e.g. "Project default" engine), while omitted fields leave the
+    # segment untouched.
+    payload = data.model_dump(exclude_unset=True)
+    if "text" in payload:
+        segment.text = payload["text"]
+        # Editing a segment invalidates any completed generation.
+        segment.status = "draft"
+    if "profile_id" in payload:
+        segment.profile_id = payload["profile_id"]
+    if "character_id" in payload:
+        segment.character_id = payload["character_id"]
         # Resolve the voice from the character when one is assigned.
-        character = db.query(DBStoryCharacter).filter_by(id=data.character_id).first()
+        character = db.query(DBStoryCharacter).filter_by(id=payload["character_id"]).first()
         if character is not None:
             segment.profile_id = character.profile_id
-    if data.engine is not None:
-        segment.engine = data.engine
-    if data.model_size is not None:
-        segment.model_size = data.model_size
-    if data.language is not None:
-        segment.language = data.language
-    if data.fade_in_ms is not None:
-        segment.fade_in_ms = data.fade_in_ms
-    if data.fade_out_ms is not None:
-        segment.fade_out_ms = data.fade_out_ms
-    # Editing a segment invalidates any completed generation.
-    if data.text is not None:
-        segment.status = "draft"
+    if "engine" in payload:
+        segment.engine = payload["engine"]
+    if "model_size" in payload:
+        segment.model_size = payload["model_size"]
+    if "language" in payload:
+        segment.language = payload["language"]
+    if "fade_in_ms" in payload:
+        segment.fade_in_ms = payload["fade_in_ms"]
+    if "fade_out_ms" in payload:
+        segment.fade_out_ms = payload["fade_out_ms"]
     segment.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(segment)
@@ -1812,14 +1823,29 @@ async def generate_segment(
             "segment or the story first."
         )
 
+    # Project-level generation defaults (story → segment → profile) so a
+    # project can pin an engine/model/language and individual segments can
+    # override it.
+    story = db.query(DBStory).filter_by(id=story_id).first()
     engine = (
         segment.engine
+        or (getattr(story, "default_engine", None) if story else None)
         or getattr(profile, "default_engine", None)
         or getattr(profile, "preset_engine", None)
         or "qwen"
     )
-    model_size = segment.model_size or "1.7B"
-    language = data.language or segment.language or profile.language or "en"
+    model_size = (
+        segment.model_size
+        or (getattr(story, "default_model_size", None) if story else None)
+        or "1.7B"
+    )
+    language = (
+        data.language
+        or segment.language
+        or (getattr(story, "default_language", None) if story else None)
+        or profile.language
+        or "en"
+    )
 
     from ..backends import engine_has_model_sizes
 
@@ -1921,12 +1947,22 @@ async def generate_many_segments(
 
         engine = (
             segment.engine
+            or (getattr(story, "default_engine", None) if story else None)
             or getattr(profile, "default_engine", None)
             or getattr(profile, "preset_engine", None)
             or "qwen"
         )
-        model_size = segment.model_size or "1.7B"
-        language = segment.language or profile.language or "en"
+        model_size = (
+            segment.model_size
+            or (getattr(story, "default_model_size", None) if story else None)
+            or "1.7B"
+        )
+        language = (
+            segment.language
+            or (getattr(story, "default_language", None) if story else None)
+            or profile.language
+            or "en"
+        )
 
         generation_id = str(uuid.uuid4())
         await history_service.create_generation(

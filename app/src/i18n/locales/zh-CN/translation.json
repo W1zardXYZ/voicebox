@@ -1177,7 +1177,14 @@
     "voice": "Voice",
     "noVoice": "No voice",
     "saveCharacter": "Save character",
-    "toggleNarrator": "Set as narrator"
+    "toggleNarrator": "Set as narrator",
+    "listen": "试听",
+    "segmentOverride": "模型覆盖",
+    "engine": "模型",
+    "modelSize": "模型大小",
+    "languageLabel": "语言",
+    "useDefault": "项目默认",
+    "projectDefaults": "默认模型与语言"
   },
   "models": {
     "title": "模型",
@@ -1292,7 +1299,8 @@
     "fadeOut": "Fade out",
     "generateAll": "Generate all",
     "perSegment": "per segment",
-    "delete": "Delete segment"
+    "delete": "Delete segment",
+    "generateFirst": "先生成此片段再试听"
   },
   "chapters": {
     "title": "Chapters",

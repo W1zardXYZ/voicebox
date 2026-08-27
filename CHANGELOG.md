@@ -101,6 +101,26 @@ models actually run on this machine.
   floating panel was removed from the Stories route — it still ships on the
   home/profile route where it remains the primary way to speak a line.
 
+### Stories — listen, per-project model & a chapter-aware timeline
+
+- **Listen to a single segment.** Every segment has a Listen button (in its
+  Clip panel and on the segment row). It plays that segment's generated audio
+  in the bottom player; the player takes over the footer and the arrangement
+  timeline comes back when you stop. Enable once a segment is generated.
+- **Per-project default model & language.** A story now carries a default
+  engine, model size and language (`default_engine` / `default_model_size` /
+  `default_language`, new `stories` columns + migration). Set them on the
+  Project tab; any segment that doesn't override them inherits them. The
+  resolution chain is segment override → project default → profile default.
+- **Per-segment model override.** The Clip tab exposes an engine / model-size /
+  language override per segment. "Project default" clears the override back to
+  the story setting; updates use partial (`exclude_unset`) semantics so renaming
+  a story never wipes the project defaults.
+- **Chapter-aware timeline.** The footer timeline now scopes to the chapter
+  being edited — items are traced back to their segment
+  (`story_segment_id` is now exposed on items) and filtered by the active
+  chapter, so switching chapters in the rail switches the arrangement too.
+
 ### Linux
 
 - **ROCm setup works on Linux AMD systems.** Docker ROCm builds now keep PyTorch

@@ -582,6 +582,10 @@ class StoryCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
+    # Per-project generation defaults (engine/model_size/language).
+    default_engine: str | None = Field(None, max_length=64)
+    default_model_size: str | None = Field(None, max_length=64)
+    default_language: str | None = Field(None, max_length=16)
 
 
 class StoryResponse(BaseModel):
@@ -593,6 +597,10 @@ class StoryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     item_count: int = 0
+    # Per-project generation defaults
+    default_engine: str | None = None
+    default_model_size: str | None = None
+    default_language: str | None = None
 
     class Config:
         from_attributes = True
@@ -605,6 +613,8 @@ class StoryItemDetail(BaseModel):
     story_id: str
     generation_id: str
     version_id: str | None = None
+    # Trace-back to the source segment (for chapter-scoped timelines).
+    story_segment_id: str | None = None
     start_time_ms: int
     track: int = 0
     trim_start_ms: int = 0
@@ -639,6 +649,10 @@ class StoryDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: list[StoryItemDetail] = []
+    # Per-project generation defaults
+    default_engine: str | None = None
+    default_model_size: str | None = None
+    default_language: str | None = None
     # Optional chapter → segment hierarchy (spec §4); empty for legacy flat
     # stories. Forward ref: StoryChapterResponse is defined below.
     chapters: list["StoryChapterResponse"] = []

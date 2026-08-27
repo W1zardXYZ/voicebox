@@ -95,6 +95,11 @@ class Story(Base):
     description = Column(Text)
     # Default voice for segments without an explicit speaker (spec §4.2).
     default_voice_profile_id = Column(String, ForeignKey("profiles.id"), nullable=True)
+    # Per-project generation defaults — used as the fallback when a segment
+    # has no engine/model_size/language of its own.
+    default_engine = Column(String, nullable=True)
+    default_model_size = Column(String, nullable=True)
+    default_language = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
